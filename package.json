@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "verify:nebius": "node scripts/verify-nebius.mjs",
     "test:sandbox": "node scripts/test-sandbox.mjs",
+    "test:nebius-sandbox": "node scripts/test-nebius-sandbox.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {

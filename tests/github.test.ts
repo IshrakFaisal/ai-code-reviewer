@@ -79,6 +79,17 @@ describe("GitHub retrieval", () => {
       (await fetchPullRequest(ref, async () => {})).warnings.join(),
     ).toContain("missing or truncated");
   });
+  it("preserves cancellation instead of turning it into a network error", async () => {
+    const controller = new AbortController();
+    mock.repo.mockImplementationOnce(() => {
+      controller.abort();
+      throw controller.signal.reason;
+    });
+    await expect(
+      fetchPullRequest(ref, async () => {}, controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(mock.pull).not.toHaveBeenCalled();
+  });
   it("returns actionable not-found and rate-limit errors", () => {
     expect(githubError({ status: 404 }).message).toContain("not found");
     expect(

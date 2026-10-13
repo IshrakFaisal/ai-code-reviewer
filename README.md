@@ -73,8 +73,9 @@ The demo PR is synthetic: `acme/platform #127`, 18 files and 1,437 changed lines
 | Docker execution of explicitly trusted repositories                                            | Implemented for Linux containers, including Windows Docker Desktop; Docker required |
 | Native development execution                                                                   | Explicit opt-in for trusted Linux/macOS/WSL repositories                            |
 | Workspace access protection                                                                    | Public origin validation, owner authentication, CSP, bounded request bodies         |
-| Nebius ConTree sandbox                                                                         | Extension boundary documented; instance-specific adapter is not connected           |
+| Nebius ConTree sandbox                                                                         | REST adapter implemented; requires sandbox access, IAM token, project and image UUID |
 | Local report history                                                                           | Implemented; filesystem persistence, newest 100 reports                             |
+| Human review checklist and Markdown export                                                     | Saved decisions/notes per report and commit, decision filters, copy/download summary |
 
 Live credentials were not supplied during development. Adapter validation and failures are tested with mocked HTTP responses; a live inference request still requires account validation.
 
@@ -97,10 +98,12 @@ flowchart LR
   Plan --> Execution[Sandbox interface]
   Execution --> Local[Opt-in native development provider]
   Execution --> Docker[Constrained Docker provider]
+  Execution --> Nebius[Nebius ConTree checkpoints]
   Execution --> Demo[Bundled fixture runner]
   Static --> Evidence[Evidence classification]
   Local --> Evidence
   Docker --> Evidence
+  Nebius --> Evidence
   Demo --> Evidence
   Evidence --> Report[Review map + JSON report]
   Report --> Disk[Local report store]
@@ -118,7 +121,7 @@ src/lib/github/             Input validation, API client, PR retrieval, diff par
 src/lib/analysis/           File categories, fallback observations, blast radius
 src/lib/risk/               Explicit scoring, explanations and review surface
 src/lib/verification/       Static checks, execution and evidence classification
-src/lib/sandbox/            Provider interface, local executor, remote extension
+src/lib/sandbox/            Provider interface, native, Docker and Nebius executors
 src/lib/demo/               Synthetic PR, curated test and executable fixture
 src/lib/reports/            Local report storage
 tests/                     Risk, evidence, provider, retrieval and demo tests
@@ -196,6 +199,16 @@ Finding statuses:
 
 The dependency map shows potential connections inferred from categories, not a verified import graph.
 
+## Human review checklist
+
+Open a report and use **Your review** to see the checklist. Each finding has a **Decision** selector: Needs review, Needs fix, Reviewed, or Dismissed. Add an optional note (up to 2,000 characters) and click **Save decision**. Filter findings by decision to focus on remaining work. Saved decisions survive page reloads and server restarts.
+
+Use **Copy Markdown** or **Download Markdown** to share a summary containing your saved decisions, notes, file references, verification evidence, and coverage limitations. Save pending drafts before exporting. The existing JSON export remains the original analysis. Nothing is automatically posted to GitHub, and this feature requires no additional credentials.
+
+Decisions are tied to the exact report and head commit; reviewing or dismissing a finding does not change its evidence or verify a fix. Concurrent saves from another tab return a conflict and preserve your draft for review before retrying.
+
+This is a shared checklist for the workspace owner. Review revision snapshots live in `.data/reviews/` on the same persistent filesystem as reports; earlier notes remain in those snapshots after edits. Report retention does not remove review snapshots. The sample report at `/report/demo` has its own stable checklist. Unsaved drafts exist only in the browser page, so save them before navigating away.
+
 ## Environment variables
 
 | Variable                     | Default / purpose                                                                                             |
@@ -207,11 +220,17 @@ The dependency map shows potential connections inferred from categories, not a v
 | `NEBIUS_MODEL`               | Required for model inference; select an eligible NVIDIA model from your catalog.                              |
 | `NEBIUS_REQUIRE_NVIDIA`      | `true`; require an exact available `nvidia/` model. Explicit `false` permits another selected vendor.         |
 | `MAX_INVESTIGATIONS`         | `5`, bounded to 1–10; invalid values fall back to 5.                                                          |
-| `SANDBOX_PROVIDER`           | `disabled`, `docker`, or `native`. Legacy enablement without this setting selects native.                     |
+| `SANDBOX_PROVIDER`           | `disabled`, `docker`, `native`, or `nebius`. Legacy local enablement without this setting selects native.      |
 | `ENABLE_LOCAL_SANDBOX`       | `false`; explicit execution switch, always requires a trusted repository allowlist.                           |
 | `LOCAL_SANDBOX_REPOSITORIES` | Comma-separated public `OWNER/REPO` names explicitly trusted for local execution.                             |
 | `SANDBOX_DOCKER_IMAGE`       | `node:22-bookworm`; must be present locally, resolved to its immutable image ID before execution.             |
-| `ENABLE_PRODUCTION_SANDBOX`  | `false`; additional production opt-in for Docker only. Native execution always refuses production.            |
+| `ENABLE_NEBIUS_SANDBOX`      | `false`; explicit remote execution switch, requires its own repository allowlist.                             |
+| `NEBIUS_SANDBOX_REPOSITORIES`| Comma-separated public `OWNER/REPO` names permitted for remote execution.                                     |
+| `NEBIUS_SANDBOX_BASE_URL`    | `https://api.tokenfactory.nebius.com/sandboxes`; server-configured clean HTTPS endpoint.                       |
+| `NEBIUS_SANDBOX_TOKEN`       | Server-only Nebius IAM bearer token with sandbox access; separate from inference configuration.              |
+| `NEBIUS_SANDBOX_PROJECT_ID`  | Nebius project context, sent in the sandbox API's `Project` header.                                         |
+| `NEBIUS_SANDBOX_IMAGE`       | Immutable UUID of an already imported, trusted Node 22+ image containing git and npm/Corepack.               |
+| `ENABLE_PRODUCTION_SANDBOX`  | `false`; additional production opt-in for Docker or Nebius. Native execution always refuses production.      |
 | `APP_ORIGIN`                 | Unset for loopback; exact HTTPS origin required for public hosting. Forwarded headers do not grant trust.     |
 | `APP_AUTH_USERNAME`          | Owner username for HTTP Basic authentication. Required for public hosting; optional locally.                  |
 | `APP_AUTH_PASSWORD`          | Owner password, at least 24 characters. Required with a username; server-only.                                |
@@ -222,7 +241,7 @@ The dependency map shows potential connections inferred from categories, not a v
 
 This is a **single-owner workspace**, not a multitenant service. Loopback use needs no login by default. A configured public workspace requires `APP_ORIGIN=https://your-host`, `APP_AUTH_USERNAME`, and a strong `APP_AUTH_PASSWORD`; the browser prompts for credentials. Authentication covers reports, history, and analysis, with an additional API-level check. Serve behind HTTPS with the original Host preserved. The supplied start commands remain loopback-bound. Do not expose a listener without configuring this boundary. Per-user access control, distributed quotas, encrypted storage, and operational monitoring remain deployment concerns.
 
-Requests reject unconfigured public hosts and cross-origin analysis. A fresh script nonce protects each rendered page; inline style attributes remain permitted for report charts. Private responses are not cached, framing and object embedding are blocked, and request bodies are capped at 4 KB with a 10-second read deadline.
+Requests reject unconfigured public hosts and cross-origin analysis or review edits. A fresh script nonce protects each rendered page; inline style attributes remain permitted for report charts. Private responses are not cached, framing and object embedding are blocked, and request bodies are capped at 4 KB for analysis or 16 KB for review notes, with a 10-second read deadline.
 
 The GitHub layer accepts only validated `github.com` repository/PR inputs, reads public repositories, pins analyzed head/base SHAs, and rejects a PR that changes during retrieval. Model context treats repository content as untrusted data. Zod rejects unexpected structures, invented file paths are discarded, and ungrounded line locations are removed. The model has no arbitrary tool or command interface.
 
@@ -247,9 +266,36 @@ Restart `npm run dev` after configuration. Run `npm run test:sandbox` to exercis
 
 **Native execution** (`SANDBOX_PROVIDER=native`) remains for fully trusted Linux/macOS/WSL repositories in development only. It runs as your OS user and cannot isolate the host filesystem or network. It requires `ENABLE_LOCAL_SANDBOX=true` and an exact allowlist, always refuses production, and remains unavailable on native Windows. Use Docker for the Windows path.
 
-Both providers use controlled command IDs and reject traversal, symlink paths, and overwriting existing generated files. Commands time out (60 seconds; installation 120 seconds) and console output is capped at 32 KB. Generated tests still need valid repository imports/fixtures; missing framework support or invalid tests remain unavailable/inconclusive. A passing repository command does not invent assertion counts.
+Execution providers use controlled command IDs and reject traversal, escaping symlinks, and overwriting existing generated files. Reads may follow symlinks only within the checkout, supporting pnpm's dependency layout; writes reject symlinks. Generated checks require Vitest 3.2+ or 4, use an explicit isolated project, reject stale reports, and verify the reported test filename. Commands time out (60 seconds; installation 120 seconds) and console output is capped at 32 KB. Tests still need valid repository imports/fixtures; unsupported or invalid tests remain unavailable/inconclusive. A passing repository command does not invent assertion counts.
 
-The remote Nebius ConTree adapter remains intentionally unavailable until provisioned and implemented. The working provider selection supports Docker and native execution; it does not fabricate Nebius sandbox methods.
+**Nebius remote execution** (`SANDBOX_PROVIDER=nebius`) uses the documented ConTree REST API and does not require Docker on the application host. Enable sandbox access in your Nebius project, obtain an IAM token, and import a trusted image containing Node 22+, git and npm/Corepack. Supply its immutable image UUID, not a mutable tag. See [remote setup and lifecycle details](docs/INTEGRATIONS.md#nebius-remote-execution).
+
+```dotenv
+SANDBOX_PROVIDER=nebius
+ENABLE_NEBIUS_SANDBOX=true
+NEBIUS_SANDBOX_REPOSITORIES=your-owner/your-repository
+NEBIUS_SANDBOX_BASE_URL=https://api.tokenfactory.nebius.com/sandboxes
+NEBIUS_SANDBOX_TOKEN=your-server-side-iam-token
+NEBIUS_SANDBOX_PROJECT_ID=your-project-id
+NEBIUS_SANDBOX_IMAGE=your-imported-image-uuid
+```
+
+The adapter runs as a non-root user, pins the analyzed Git commit, and carries workspace state between remote checkpoints. Only clone/install operations enable networking; repository checks and generated tests run with networking disabled. Application secrets are never injected into the execution environment. Production additionally requires `ENABLE_PRODUCTION_SANDBOX=true`. Stopping an analysis requests cancellation of active operations; checkpoint cleanup follows the service's retention policy and is not immediate erasure. The [Nebius beta overview](https://docs.tokenfactory.nebius.com/sandboxes/overview) currently describes 180-day checkpoint retention with possible removal of untagged, unreferenced images afterward. This adapter creates no tags or imports automatically. Live access and image compatibility must be checked with your account.
+
+Run `npm run test:nebius-sandbox` to check the configured account and image. It loads `.env.local`, performs billable remote checks, and retains one tiny public fixture checkpoint under Nebius's retention policy. It checks checkpoint persistence, offline execution, exit codes, and cancellation. The default test suite skips this opt-in check. Inference can be checked separately with `npm run verify:nebius`.
+
+## Troubleshooting GitHub analysis
+
+GitHub requests run on the app server. A working browser connection does not establish that the Node.js process can reach `api.github.com`. If the error mentions blocked access or DNS resolution and the app was started in a restricted coding-agent terminal, stop that server and start the existing project from a regular Windows PowerShell window:
+
+```powershell
+cd "D:\Codex Projects\AI code reviewer"
+node .\node_modules\next\dist\bin\next dev --hostname 127.0.0.1 --port 3001
+```
+
+Open `http://127.0.0.1:3001`. Other installations should use their own project directory. If the server still cannot connect, check its DNS, VPN, firewall and proxy settings. Public PRs work without `GITHUB_TOKEN`; adding a token can raise GitHub's API limit but cannot repair blocked network access. Add or update it only in `.env.local`, then restart the server.
+
+Each GitHub request has a 20-second deadline and at most two retries for transient connection failures or HTTP 408/500/502/503/504 responses. Authentication, missing PRs, access restrictions and rate limits are reported immediately; rate-limit messages include the available retry time. Cancelling the analysis also cancels any pending retry.
 
 ## Validation
 
@@ -264,9 +310,9 @@ Tests exercise URL boundaries, hunk line accounting, score thresholds and overri
 
 ## Limitations and roadmap
 
-Live AI needs account credentials; inference billing and NVIDIA availability vary by account. The remote Nebius sandbox is unfinished. Static checks remain conservative and generated tests may require repository-specific imports/setup/fixtures. Root Node projects are supported; monorepo orchestration and other languages are not. Reports, owner authentication, and concurrency controls are local to one process/host; persistent disks are required when self-hosting. No claim of full behavioral coverage or multitenant production readiness is made.
+Live AI and remote sandbox execution need separate account configuration; inference billing, sandbox access and NVIDIA availability vary by account. Static checks remain conservative and generated tests may require repository-specific imports/setup/fixtures. Root Node projects are supported; monorepo orchestration and other languages are not. Reports, owner authentication, and concurrency controls are local to one process/host; persistent disks are required when self-hosting. No claim of full behavioral coverage or multitenant production readiness is made.
 
-Next: connect the isolated ConTree adapter, compare regression tests against base and head revisions, support more test frameworks and monorepos, add an actual import graph and contract snapshots, and introduce a durable job queue. Later: GitHub App / Actions, opt-in PR comments, Slack notifications, organization history, IDE integrations, and enterprise access control. These are not part of the MVP.
+Next: compare regression tests against base and head revisions, support more test frameworks and monorepos, add an actual import graph and contract snapshots, and introduce a durable job queue. Later: GitHub App / Actions, opt-in PR comments, Slack notifications, organization history, IDE integrations, and enterprise access control. These are not part of the MVP.
 
 ## Screenshots and submission
 

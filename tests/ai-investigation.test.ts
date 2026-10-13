@@ -163,7 +163,7 @@ describe("live AI category refinement orchestration", () => {
       true,
     );
     expect(report.reviewSurface.priorityLines).toBe(2);
-    expect(report.events).toHaveLength(14);
+    expect(new Set(report.events.map((event) => event.stage)).size).toBe(14);
     expect(report.events[4].detail).toContain("additive AI inference");
     expect(report.warnings.join(" ")).toContain(
       "cannot remove deterministic risk signals",
@@ -187,7 +187,7 @@ describe("live AI category refinement orchestration", () => {
       severity: "MEDIUM",
       status: "UNVERIFIED_RISK",
     });
-    expect(report.events).toHaveLength(14);
+    expect(new Set(report.events.map((event) => event.stage)).size).toBe(14);
     expect(report.events[4].detail).toContain("using path heuristics");
     expect(report.events[4].detail).not.toContain("AI inference");
     expect(report.warnings.join(" ")).toContain(

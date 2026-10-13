@@ -158,7 +158,7 @@ export class NebiusProvider implements AIProvider {
   }
   async generateVerificationPlan(pr: PullRequest, hypothesis: Hypothesis) {
     return this.structured(
-      "Generate one targeted Vitest test and a concise verification strategy. Do not use shell commands, network calls, or process execution.",
+      "Generate one targeted Vitest test and a concise verification strategy. The test will be saved under .change-verifier/ in the repository root, using an isolated Node Vitest project without repository aliases or setup. Use relative imports from that location and Vitest expect assertions. Do not use shell commands, network calls, process execution, configuration overrides, or writes to runner reports.",
       { pr: context(pr), hypothesis },
       planSchema,
     );

@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { sandboxFileProgram } from "./file-program";
 import type { PullRequest } from "@/lib/types";
 import type { CommandId, CommandResult, SandboxProvider } from "./provider";
 import { sandboxAllowed, selectedSandboxProvider } from "./factory";
 import { runProcess, type ProcessRunner } from "./process";
 import {
-  commandPlan, generatedPlan, installPlan, packageManager, requireVitest, optionalFile,
-  sandboxEnvironment, validateRelativePath,
+  commandPlan,
+  generatedPlan,
+  installPlan,
+  packageManager,
+  requireVitest,
+  optionalFile,
+  readGeneratedReport,
+  sandboxEnvironment,
+  validateRelativePath,
   type PackageManager,
 } from "./commands";
 
@@ -15,51 +23,26 @@ export const DEFAULT_DOCKER_IMAGE = "node:22-bookworm";
 
 function dockerEnvironment(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { NODE_ENV: "test" };
-  for (const key of ["PATH", "SystemRoot", "WINDIR", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY"])
+  for (const key of [
+    "PATH",
+    "SystemRoot",
+    "WINDIR",
+    "HOME",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "DOCKER_HOST",
+    "DOCKER_CONTEXT",
+    "DOCKER_CONFIG",
+    "DOCKER_CERT_PATH",
+    "DOCKER_TLS_VERIFY",
+  ])
     if (process.env[key]) env[key] = process.env[key];
   return env;
 }
 
-// Executed from a fixed string, with all file names and contents passed as data.
-// No source code or filesystem path from a PR is interpolated into the program.
-const FILE_PROGRAM = `
-const fs = require('node:fs');
-const path = require('node:path');
-const [operation, relative] = process.argv.slice(1);
-const root = '${CHECKOUT}';
-try {
-  if (!relative || relative.includes('\\\\') || relative.includes('\\0') || path.isAbsolute(relative) || relative.split('/').some(p => !p || p === '.' || p === '..')) throw Error('Invalid sandbox file path.');
-  let current = root;
-  const rootStat = fs.lstatSync(root);
-  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) throw Error('Invalid checkout directory.');
-  for (const segment of relative.split('/')) {
-    current = path.join(current, segment);
-    try { if (operation !== 'read' && fs.lstatSync(current).isSymbolicLink()) throw Error('Symlink paths are not allowed.'); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
-  }
-  if (operation === 'read') {
-    current = fs.realpathSync(current);
-    if (!current.startsWith(fs.realpathSync(root) + path.sep)) throw Error('File escapes sandbox.');
-    const handle = fs.openSync(current, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-    const stat = fs.fstatSync(handle);
-    if (!stat.isFile()) throw Error('Sandbox file must be a regular file.');
-    const buffer = Buffer.alloc(Math.min(stat.size, 256000));
-    const length = fs.readSync(handle, buffer, 0, buffer.length, 0);
-    process.stdout.write(buffer.subarray(0, length));
-    fs.closeSync(handle);
-  } else if (operation === 'write') {
-    if (!/^\\.change-verifier\\/[a-zA-Z0-9_-]+\\.(test\\.ts|config\\.mjs)$/.test(relative)) throw Error('Invalid generated artifact path.');
-    const directory = path.dirname(current);
-    if (!fs.existsSync(directory)) fs.mkdirSync(directory, {mode: 0o700});
-    if (fs.lstatSync(directory).isSymbolicLink()) throw Error('Symlink paths are not allowed.');
-    const contents = fs.readFileSync(0);
-    if (contents.length > 32000) throw Error('Generated file exceeds the size limit.');
-    const handle = fs.openSync(current, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
-    fs.writeFileSync(handle, contents);
-    fs.closeSync(handle);
-  } else throw Error('Unsupported file operation.');
-} catch (error) { process.stderr.write(error.message); process.exitCode = error.code === 'ENOENT' ? 44 : 1; }
-`;
+const FILE_PROGRAM = sandboxFileProgram(CHECKOUT);
 
 /** Bounded Linux container, also usable from Windows through Docker Desktop. */
 export class DockerSandboxProvider implements SandboxProvider {
@@ -78,15 +61,30 @@ export class DockerSandboxProvider implements SandboxProvider {
   }
 
   private assertAllowed() {
-    if (selectedSandboxProvider() !== "docker" || !sandboxAllowed(this.repository))
-      throw new Error("Docker execution requires explicit enablement and an allowed repository.");
+    if (
+      selectedSandboxProvider() !== "docker" ||
+      !sandboxAllowed(this.repository)
+    )
+      throw new Error(
+        "Docker execution requires explicit enablement and an allowed repository.",
+      );
   }
 
-  private async cli(args: string[], options: { timeout?: number; input?: string; outputLimit?: number; cleanup?: boolean } = {}) {
+  private async cli(
+    args: string[],
+    options: {
+      timeout?: number;
+      input?: string;
+      outputLimit?: number;
+      cleanup?: boolean;
+    } = {},
+  ) {
     if (!options.cleanup) this.assertAllowed();
     return this.run("docker", args, {
-      env: dockerEnvironment(), signal: options.cleanup ? undefined : this.signal,
-      timeout: options.timeout ?? 60_000, input: options.input,
+      env: dockerEnvironment(),
+      signal: options.cleanup ? undefined : this.signal,
+      timeout: options.timeout ?? 60_000,
+      input: options.input,
       outputLimit: options.outputLimit,
       onTerminate: options.cleanup ? undefined : () => this.destroySandbox(),
     });
@@ -94,54 +92,138 @@ export class DockerSandboxProvider implements SandboxProvider {
 
   async createSandbox() {
     if (this.created) throw new Error("Sandbox has already been created.");
-    const engine = await this.cli(["info", "--format", "{{.OSType}}"], { timeout: 15_000 });
-    if (engine.exitCode !== 0 || engine.timedOut || engine.output.trim() !== "linux")
-      throw new Error("Docker is unavailable or not using Linux containers. Start Docker Desktop with Linux containers enabled.");
+    const engine = await this.cli(["info", "--format", "{{.OSType}}"], {
+      timeout: 15_000,
+    });
+    if (
+      engine.exitCode !== 0 ||
+      engine.timedOut ||
+      engine.output.trim() !== "linux"
+    )
+      throw new Error(
+        "Docker is unavailable or not using Linux containers. Start Docker Desktop with Linux containers enabled.",
+      );
     const image = process.env.SANDBOX_DOCKER_IMAGE || DEFAULT_DOCKER_IMAGE;
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]{0,255}$/.test(image))
       throw new Error("Invalid SANDBOX_DOCKER_IMAGE reference.");
-    const inspect = await this.cli(["image", "inspect", image, "--format", "{{.Id}}"], { timeout: 15_000 });
+    const inspect = await this.cli(
+      ["image", "inspect", image, "--format", "{{.Id}}"],
+      { timeout: 15_000 },
+    );
     const imageId = inspect.output.trim();
     if (inspect.exitCode !== 0 || !/^sha256:[a-f0-9]{64}$/.test(imageId))
-      throw new Error(`Sandbox image is not available locally. Pull the configured ${image} image before enabling execution.`);
+      throw new Error(
+        `Sandbox image is not available locally. Pull the configured ${image} image before enabling execution.`,
+      );
     const args = [
-      "create", "--name", this.name, "--label", "ai-change-verifier=sandbox",
-      "--pull=never", "--init", "--read-only", "--user", "1000:1000",
-      "--cap-drop=ALL", "--security-opt=no-new-privileges:true",
-      "--cpus=2", "--memory=2g", "--memory-swap=2g", "--pids-limit=128",
-      "--ulimit", "nofile=1024:1024", "--network=bridge", "--log-driver=none",
-      "--tmpfs", "/workspace:rw,nosuid,nodev,size=1536m,uid=1000,gid=1000,mode=0700",
-      "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700",
-      "--workdir", ROOT, "--entrypoint", "node",
+      "create",
+      "--name",
+      this.name,
+      "--label",
+      "ai-change-verifier=sandbox",
+      "--pull=never",
+      "--init",
+      "--read-only",
+      "--user",
+      "1000:1000",
+      "--cap-drop=ALL",
+      "--security-opt=no-new-privileges:true",
+      "--cpus=2",
+      "--memory=2g",
+      "--memory-swap=2g",
+      "--pids-limit=128",
+      "--ulimit",
+      "nofile=1024:1024",
+      "--network=bridge",
+      "--log-driver=none",
+      "--tmpfs",
+      "/workspace:rw,nosuid,nodev,size=1536m,uid=1000,gid=1000,mode=0700",
+      "--tmpfs",
+      "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700",
+      "--workdir",
+      ROOT,
+      "--entrypoint",
+      "node",
     ];
-    for (const [key, value] of Object.entries(sandboxEnvironment(ROOT, this.yarnRcFilename))) args.push("--env", `${key}=${value}`);
+    for (const [key, value] of Object.entries(
+      sandboxEnvironment(ROOT, this.yarnRcFilename),
+    ))
+      args.push("--env", `${key}=${value}`);
     args.push(imageId, "-e", "setInterval(() => {}, 1000)");
     // Reserve our unpredictable name before creation so failures/abort can always clean up.
     this.created = true;
     const create = await this.cli(args);
-    if (create.exitCode !== 0 || create.timedOut) throw new Error("Could not create the constrained Docker sandbox.");
+    if (create.exitCode !== 0 || create.timedOut)
+      throw new Error("Could not create the constrained Docker sandbox.");
     const start = await this.cli(["start", this.name]);
-    if (start.exitCode !== 0 || start.timedOut) throw new Error("Could not start the Docker sandbox.");
-    const identity = await this.exec("node", ["-e", "if(process.getuid() === 0) process.exit(1);"], ROOT);
-    if (identity.exitCode !== 0) throw new Error("The sandbox must run as a non-root user.");
+    if (start.exitCode !== 0 || start.timedOut)
+      throw new Error("Could not start the Docker sandbox.");
+    const identity = await this.exec(
+      "node",
+      ["-e", "if(process.getuid() === 0) process.exit(1);"],
+      ROOT,
+    );
+    if (identity.exitCode !== 0)
+      throw new Error("The sandbox must run as a non-root user.");
   }
 
-  private async exec(command: string, args: string[], cwd = CHECKOUT, options: { timeout?: number; input?: string; outputLimit?: number } = {}) {
-    if (!this.created) throw new Error("Create the sandbox before executing commands.");
-    const env = Object.entries(sandboxEnvironment(ROOT, this.yarnRcFilename)).map(([key, value]) => `${key}=${value}`);
-    return this.cli(["exec", ...(options.input !== undefined ? ["-i"] : []), "--workdir", cwd, this.name, "env", "-i", ...env, command, ...args], options);
+  private async exec(
+    command: string,
+    args: string[],
+    cwd = CHECKOUT,
+    options: { timeout?: number; input?: string; outputLimit?: number } = {},
+  ) {
+    if (!this.created)
+      throw new Error("Create the sandbox before executing commands.");
+    const env = Object.entries(
+      sandboxEnvironment(ROOT, this.yarnRcFilename),
+    ).map(([key, value]) => `${key}=${value}`);
+    return this.cli(
+      [
+        "exec",
+        ...(options.input !== undefined ? ["-i"] : []),
+        "--workdir",
+        cwd,
+        this.name,
+        "env",
+        "-i",
+        ...env,
+        command,
+        ...args,
+      ],
+      options,
+    );
   }
 
   private validatePullRequest(pr: PullRequest) {
-    if (!/^[a-zA-Z0-9_.-]+$/.test(pr.owner) || !/^[a-zA-Z0-9_.-]+$/.test(pr.repo) || `${pr.owner}/${pr.repo}`.toLowerCase() !== this.repository.toLowerCase())
+    if (
+      !/^[a-zA-Z0-9_.-]+$/.test(pr.owner) ||
+      !/^[a-zA-Z0-9_.-]+$/.test(pr.repo) ||
+      `${pr.owner}/${pr.repo}`.toLowerCase() !== this.repository.toLowerCase()
+    )
       throw new Error("Repository does not match the allowed selection.");
-    if (!/^[a-f0-9]{40}$/.test(pr.headSha)) throw new Error("Invalid immutable revision.");
+    if (!/^[a-f0-9]{40}$/.test(pr.headSha))
+      throw new Error("Invalid immutable revision.");
   }
 
   async cloneRepository(pr: PullRequest) {
     this.validatePullRequest(pr);
-    const result = await this.exec("git", ["-c", "core.hooksPath=/dev/null", "clone", "--no-checkout", "--depth=1", "--", `https://github.com/${pr.owner}/${pr.repo}.git`, CHECKOUT], ROOT);
-    if (result.exitCode !== 0 || result.timedOut) throw new Error("Repository clone failed.");
+    const result = await this.exec(
+      "git",
+      [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--no-checkout",
+        "--depth=1",
+        "--",
+        `https://github.com/${pr.owner}/${pr.repo}.git`,
+        CHECKOUT,
+      ],
+      ROOT,
+    );
+    if (result.exitCode !== 0 || result.timedOut)
+      throw new Error("Repository clone failed.");
   }
 
   async checkoutPullRequest(pr: PullRequest) {
@@ -150,8 +232,15 @@ export class DockerSandboxProvider implements SandboxProvider {
       ["fetch", "--depth=1", "origin", pr.headSha],
       ["checkout", "--detach", pr.headSha],
     ]) {
-      const result = await this.exec("git", ["-c", "core.hooksPath=/dev/null", ...args]);
-      if (result.exitCode !== 0 || result.timedOut) throw new Error("Could not check out the analyzed immutable PR revision.");
+      const result = await this.exec("git", [
+        "-c",
+        "core.hooksPath=/dev/null",
+        ...args,
+      ]);
+      if (result.exitCode !== 0 || result.timedOut)
+        throw new Error(
+          "Could not check out the analyzed immutable PR revision.",
+        );
     }
     const revision = await this.exec("git", ["rev-parse", "HEAD"]);
     if (revision.exitCode !== 0 || revision.output.trim() !== pr.headSha)
@@ -160,20 +249,37 @@ export class DockerSandboxProvider implements SandboxProvider {
 
   async readFile(relative: string) {
     validateRelativePath(relative);
-    const result = await this.exec("node", ["-e", FILE_PROGRAM, "read", relative], CHECKOUT, { outputLimit: 256_000 });
+    const result = await this.exec(
+      "node",
+      ["-e", FILE_PROGRAM, "read", relative],
+      CHECKOUT,
+      { outputLimit: 256_000 },
+    );
     if (result.exitCode === 44) {
-      const error = new Error(`Sandbox file ${relative} is absent.`) as NodeJS.ErrnoException;
+      const error = new Error(
+        `Sandbox file ${relative} is absent.`,
+      ) as NodeJS.ErrnoException;
       error.code = "ENOENT";
       throw error;
     }
-    if (result.exitCode !== 0 || result.timedOut) throw new Error(`Sandbox file ${relative} could not be read safely.`);
+    if (result.exitCode !== 0 || result.timedOut)
+      throw new Error(`Sandbox file ${relative} could not be read safely.`);
     return result.output;
   }
 
   private async writeArtifact(relative: string, content: string) {
-    if (Buffer.byteLength(content) > 32_000) throw new Error("Generated file exceeds the size limit.");
-    const result = await this.exec("node", ["-e", FILE_PROGRAM, "write", relative], CHECKOUT, { input: content });
-    if (result.exitCode !== 0 || result.timedOut) throw new Error("Generated file could not be written safely; existing files and symlinks are rejected.");
+    if (Buffer.byteLength(content) > 32_000)
+      throw new Error("Generated file exceeds the size limit.");
+    const result = await this.exec(
+      "node",
+      ["-e", FILE_PROGRAM, "write", relative],
+      CHECKOUT,
+      { input: content },
+    );
+    if (result.exitCode !== 0 || result.timedOut)
+      throw new Error(
+        "Generated file could not be written safely; existing files and symlinks are rejected.",
+      );
   }
 
   async writeFile(relative: string, content: string) {
@@ -185,43 +291,99 @@ export class DockerSandboxProvider implements SandboxProvider {
     this.manager = await packageManager((relative) => this.readFile(relative));
     const plan = installPlan(this.manager);
     let result: CommandResult;
-    try { result = await this.exec(plan.command, plan.args, CHECKOUT, { timeout: 120_000 }); }
-    finally { await this.disableNetwork(); }
+    try {
+      result = await this.exec(plan.command, plan.args, CHECKOUT, {
+        timeout: 120_000,
+      });
+    } finally {
+      await this.disableNetwork();
+    }
     return result;
   }
 
   private async disableNetwork() {
-    const disconnect = await this.cli(["network", "disconnect", "bridge", this.name]);
-    if (disconnect.exitCode !== 0 || disconnect.timedOut) throw new Error("Could not disable sandbox network access; execution refused.");
-    const inspect = await this.cli(["inspect", "--format", "{{json .NetworkSettings.Networks}}", this.name]);
-    if (inspect.exitCode !== 0 || inspect.output.trim() !== "{}") throw new Error("Sandbox still has a network connection; execution refused.");
+    const disconnect = await this.cli([
+      "network",
+      "disconnect",
+      "bridge",
+      this.name,
+    ]);
+    if (disconnect.exitCode !== 0 || disconnect.timedOut)
+      throw new Error(
+        "Could not disable sandbox network access; execution refused.",
+      );
+    const inspect = await this.cli([
+      "inspect",
+      "--format",
+      "{{json .NetworkSettings.Networks}}",
+      this.name,
+    ]);
+    if (inspect.exitCode !== 0 || inspect.output.trim() !== "{}")
+      throw new Error(
+        "Sandbox still has a network connection; execution refused.",
+      );
     this.offline = true;
   }
 
-  async runCommand(command: CommandId, testFile?: string): Promise<CommandResult> {
-    if (!this.offline || !this.manager) throw new Error("Install dependencies and disable network access before verification.");
-    if (!["build", "typecheck", "tests", "generated"].includes(command)) throw new Error("Unsupported verification command.");
+  async runCommand(
+    command: CommandId,
+    testFile?: string,
+  ): Promise<CommandResult> {
+    if (!this.offline || !this.manager)
+      throw new Error(
+        "Install dependencies and disable network access before verification.",
+      );
+    if (!["build", "typecheck", "tests", "generated"].includes(command))
+      throw new Error("Unsupported verification command.");
     if (command === "generated") {
-      if (!testFile) throw new Error("Generated execution requires a valid test filename.");
+      if (!testFile)
+        throw new Error("Generated execution requires a valid test filename.");
       await requireVitest((relative) => this.readFile(relative));
       const plan = generatedPlan(testFile);
-      if ((await optionalFile((relative) => this.readFile(relative), plan.report)) !== undefined)
-        throw new Error("Generated report already exists; refusing stale execution evidence.");
+      if (
+        (await optionalFile(
+          (relative) => this.readFile(relative),
+          plan.report,
+        )) !== undefined
+      )
+        throw new Error(
+          "Generated report already exists; refusing stale execution evidence.",
+        );
       await this.writeArtifact(plan.config, plan.content);
       const result = await this.exec(plan.command, plan.args);
       if (result.timedOut) return result;
-      try { return { ...result, output: await this.readFile(plan.report) }; }
-      catch { return { ...result, output: "Vitest did not produce a readable JSON report." }; }
+      try {
+        return {
+          ...result,
+          output: await readGeneratedReport(
+            (relative) => this.readFile(relative),
+            plan.report,
+            testFile,
+          ),
+        };
+      } catch {
+        return {
+          ...result,
+          output: "Vitest did not produce a readable JSON report.",
+        };
+      }
     }
-    const plan = await commandPlan(command, this.manager, (relative) => this.readFile(relative));
+    const plan = await commandPlan(command, this.manager, (relative) =>
+      this.readFile(relative),
+    );
     return this.exec(plan.command, plan.args);
   }
 
   async destroySandbox() {
     if (!this.created) return;
-    const result = await this.cli(["rm", "--force", "--volumes", this.name], { timeout: 15_000, cleanup: true });
+    const result = await this.cli(["rm", "--force", "--volumes", this.name], {
+      timeout: 15_000,
+      cleanup: true,
+    });
     if (result.exitCode !== 0 && !/No such container/i.test(result.output))
-      throw new Error("Docker sandbox cleanup failed; inspect containers labelled ai-change-verifier=sandbox.");
+      throw new Error(
+        "Docker sandbox cleanup failed; inspect containers labelled ai-change-verifier=sandbox.",
+      );
     this.created = false;
     this.offline = false;
   }

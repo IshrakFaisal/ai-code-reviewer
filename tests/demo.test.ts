@@ -25,9 +25,9 @@ describe("end-to-end demo investigation", () => {
       { input: "acme/platform", demo: true },
       (e) => events.push(e),
     );
-    expect(events.map((e) => e.stage)).toEqual(
-      Array.from({ length: 14 }, (_, i) => i),
-    );
+    expect(
+      events.filter((e) => e.status !== "RUNNING").map((e) => e.stage),
+    ).toEqual(Array.from({ length: 14 }, (_, i) => i));
     expect(report.findings).toHaveLength(1);
     expect(report.findings[0].status).toBe("VERIFIED_ISSUE");
     expect(report.findings[0].severity).toBe("HIGH");

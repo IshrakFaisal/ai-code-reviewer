@@ -13,5 +13,7 @@ export default async function ReportPage({
       ? await investigate({ input: "acme/platform", demo: true })
       : await getReport(id);
   if (!report) notFound();
-  return <ReportView report={report} />;
+  // The sample permalink needs a stable identity for its separate reviewer notes.
+  if (id === "demo") report.id = "demo";
+  return <ReportView key={report.id} report={report} />;
 }

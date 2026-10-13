@@ -36,10 +36,16 @@ export async function investigate(
   const demo = config.demo || input.demo === true;
   const events: AgentEvent[] = [];
   const warnings: string[] = [];
-  const progress = async (stage: number, detail: string, phase?: string) => {
+  const progress = async (
+    stage: number,
+    detail: string,
+    phase?: string,
+    status: AgentEvent["status"] = "COMPLETE",
+  ) => {
     signal?.throwIfAborted();
     const event = {
       stage,
+      status,
       detail,
       label: STAGES[stage],
       at: new Date().toISOString(),
@@ -194,8 +200,9 @@ export async function investigate(
     11,
     demo
       ? "Executing four assertions against the bundled password-reset fixture"
-      : "Running static checks and checking execution availability",
+      : "Checking execution availability, preparing the sandbox, and running repository verification",
     "EXECUTE",
+    "RUNNING",
   );
   if (demo) {
     try {
@@ -224,6 +231,11 @@ export async function investigate(
         ),
       );
   } else checks.push(...(await runLiveVerification(pr, findings, signal)));
+  await progress(
+    11,
+    "Verification finished; completed checks and unavailable checks are recorded separately",
+    "EXECUTE",
+  );
   for (const f of findings) f.status = findingStatus(f.evidence, demo);
   for (const file of pr.files)
     file.risk = assessRisk(

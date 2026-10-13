@@ -102,6 +102,7 @@ export interface Behavior {
 }
 export interface AgentEvent {
   stage: number;
+  status?: "RUNNING" | "COMPLETE";
   label: string;
   detail: string;
   at: string;

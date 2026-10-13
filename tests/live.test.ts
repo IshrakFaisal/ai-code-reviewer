@@ -22,7 +22,12 @@ describe("live orchestration without credentials", () => {
     vi.stubEnv("ENABLE_LOCAL_SANDBOX", "false");
     const report = await investigate({ input: "acme/platform", prNumber: 127 });
     expect(report.mode).toBe("LIVE");
-    expect(report.events).toHaveLength(14);
+    expect(new Set(report.events.map((event) => event.stage)).size).toBe(14);
+    expect(
+      report.events
+        .filter((event) => event.stage === 11)
+        .map((event) => event.status),
+    ).toEqual(["RUNNING", "COMPLETE"]);
     expect(report.provider).toBe("Deterministic analysis");
     expect(report.findings.length).toBeGreaterThan(0);
     expect(

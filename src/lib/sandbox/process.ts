@@ -63,7 +63,8 @@ export const runProcess: ProcessRunner = (command, args, options) => {
     const limit = options.outputLimit ?? 32_000;
     const append = (chunk: Buffer) => {
       const remaining = limit - output.length;
-      if (remaining > 0) output = Buffer.concat([output, chunk.subarray(0, remaining)]);
+      if (remaining > 0)
+        output = Buffer.concat([output, chunk.subarray(0, remaining)]);
       if (chunk.length > remaining) terminate();
     };
     child.stdout.on("data", append);
@@ -76,7 +77,11 @@ export const runProcess: ProcessRunner = (command, args, options) => {
     };
     child.on("error", () => {
       cleanup();
-      reject(new Error(`${command} is unavailable. Install the configured execution tool and ensure it is on PATH.`));
+      reject(
+        new Error(
+          `${command} is unavailable. Install the configured execution tool and ensure it is on PATH.`,
+        ),
+      );
     });
     child.on("close", async (code) => {
       cleanup();

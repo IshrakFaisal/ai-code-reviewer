@@ -86,6 +86,7 @@ export async function fetchPullRequest(
       warnings,
     };
   } catch (error) {
+    signal?.throwIfAborted();
     if (error instanceof Error && error.message === "PRIVATE_REPO")
       throw new Error("This MVP analyzes public repositories only.");
     if (error instanceof Error && error.message === "PR_MOVED")

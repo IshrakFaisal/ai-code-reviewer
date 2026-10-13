@@ -12,6 +12,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { STAGES, type AgentEvent } from "@/lib/types";
+import { completedStageCount } from "@/lib/agent/progress";
 import { Button } from "@/components/ui/button";
 export function Progress({
   input,
@@ -80,7 +81,7 @@ export function Progress({
     void run();
     return () => controller.abort();
   }, [input, prNumber, demo, attempt, router]);
-  const last = events.at(-1)?.stage ?? -1;
+  const completed = completedStageCount(events);
   return (
     <div className="page progress-page">
       <Link href="/" className="text-link">
@@ -110,41 +111,41 @@ export function Progress({
           <span>
             {error
               ? "Action needed"
-              : last === 13
+              : completed === STAGES.length
                 ? "Finalizing report"
                 : "Investigation in progress"}
           </span>
           <span className="mono">
-            {Math.round(((last + 1) / STAGES.length) * 100)}%
+            {Math.round((completed / STAGES.length) * 100)}%
           </span>
         </div>
         <div
           className="progress-track"
           role="progressbar"
           aria-label="Analysis progress"
-          aria-valuenow={last + 1}
+          aria-valuenow={completed}
           aria-valuemin={0}
           aria-valuemax={STAGES.length}
         >
-          <i style={{ width: `${((last + 1) / STAGES.length) * 100}%` }} />
+          <i style={{ width: `${(completed / STAGES.length) * 100}%` }} />
         </div>
         <ol className="stage-list">
           {STAGES.map((label, i) => (
             <li
               key={label}
               className={
-                i <= last ? "done" : i === last + 1 ? "current" : "pending"
+                i < completed ? "done" : i === completed ? "current" : "pending"
               }
             >
-              {i <= last ? (
+              {i < completed ? (
                 <Check size={17} />
-              ) : i === last + 1 && !error ? (
+              ) : i === completed && !error ? (
                 <LoaderCircle size={17} className="spin" />
               ) : (
                 <Circle size={14} />
               )}
               <span>{label}</span>
-              {i <= last && <small>COMPLETE</small>}
+              {i < completed && <small>COMPLETE</small>}
             </li>
           ))}
         </ol>

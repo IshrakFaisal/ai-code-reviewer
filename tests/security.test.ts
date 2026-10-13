@@ -86,7 +86,11 @@ describe("workspace access", () => {
     const unicodePassword = "密".repeat(400);
     vi.stubEnv("APP_AUTH_USERNAME", "reviewer");
     vi.stubEnv("APP_AUTH_PASSWORD", unicodePassword);
-    expect(authorizeRequest(request("127.0.0.1:3000", basic(`reviewer:${unicodePassword}`)))).toBeUndefined();
+    expect(
+      authorizeRequest(
+        request("127.0.0.1:3000", basic(`reviewer:${unicodePassword}`)),
+      ),
+    ).toBeUndefined();
   });
 });
 

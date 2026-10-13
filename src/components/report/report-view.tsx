@@ -28,6 +28,14 @@ import {
 import type { AnalysisReport, Evidence, Finding } from "@/lib/types";
 import { titleCase, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  FindingReview,
+  ReviewOverview,
+  reviewLabels,
+  useReviewChecklist,
+  type ReviewChecklist,
+} from "./review-checklist";
+import { reviewStatuses, type ReviewStatus } from "@/lib/reports/review";
 
 function StatusIcon({ status }: { status: Evidence["status"] }) {
   return status === "PASS" ? (
@@ -76,10 +84,12 @@ function FindingCard({
   finding: f,
   report,
   index,
+  checklist,
 }: {
   finding: Finding;
   report: AnalysisReport;
   index: number;
+  checklist: ReviewChecklist;
 }) {
   return (
     <article
@@ -195,18 +205,27 @@ function FindingCard({
             <p>{f.recommendation}</p>
           </div>
         </div>
+        <FindingReview finding={f} checklist={checklist} />
       </div>
     </article>
   );
 }
 export function ReportView({ report }: { report: AnalysisReport }) {
   const [filter, setFilter] = useState("ALL");
+  const [decisionFilter, setDecisionFilter] = useState<ReviewStatus | "ALL">(
+    "ALL",
+  );
+  const checklist = useReviewChecklist(report);
   const { pr, findings, checks } = report;
   const high = pr.files.filter((f) => f.risk.level === "HIGH").length,
     medium = pr.files.filter((f) => f.risk.level === "MEDIUM").length,
     low = pr.files.filter((f) => f.risk.level === "LOW").length;
   const visible = findings.filter(
-    (f) => filter === "ALL" || f.severity === filter,
+    (f) =>
+      (filter === "ALL" || f.severity === filter) &&
+      (decisionFilter === "ALL" ||
+        (checklist.review?.findings[f.id]?.status ?? "OPEN") ===
+          decisionFilter),
   );
   const generated = checks.filter((c) => c.type === "Generated test").length
     ? checks.filter((c) => c.type === "Generated test")
@@ -316,6 +335,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           Findings <span>{findings.length}</span>
         </a>
         <a href="#verification">Verification</a>
+        <a href="#human-review">Your review</a>
         <a href="#files">Changed files</a>
         <a href="#agent-log">Agent log</a>
       </nav>
@@ -465,6 +485,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           </div>
         </section>
       </div>
+      <ReviewOverview report={report} checklist={checklist} />
       <section id="findings">
         <div className="section-heading">
           <div>
@@ -474,31 +495,56 @@ export function ReportView({ report }: { report: AnalysisReport }) {
             </h2>
             <p>Hypotheses investigated, with evidence you can inspect.</p>
           </div>
-          <div
-            className="filter-group"
-            role="group"
-            aria-label="Filter findings"
-          >
-            {["ALL", "HIGH", "MEDIUM", "LOW"].map((v) => (
-              <button
-                key={v}
-                className={filter === v ? "selected" : ""}
-                aria-pressed={filter === v}
-                onClick={() => setFilter(v)}
+          <div className="finding-filters">
+            <label className="review-filter">
+              Review decision
+              <select
+                value={decisionFilter}
+                disabled={!checklist.review}
+                onChange={(event) =>
+                  setDecisionFilter(event.target.value as ReviewStatus | "ALL")
+                }
               >
-                {titleCase(v)}
-              </button>
-            ))}
+                <option value="ALL">All decisions</option>
+                {reviewStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {reviewLabels[status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div
+              className="filter-group"
+              role="group"
+              aria-label="Filter findings"
+            >
+              {["ALL", "HIGH", "MEDIUM", "LOW"].map((v) => (
+                <button
+                  key={v}
+                  className={filter === v ? "selected" : ""}
+                  aria-pressed={filter === v}
+                  onClick={() => setFilter(v)}
+                >
+                  {titleCase(v)}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         {visible.length ? (
-          visible.map((f, i) => (
-            <FindingCard key={f.id} finding={f} report={report} index={i} />
+          visible.map((f) => (
+            <FindingCard
+              key={f.id}
+              finding={f}
+              report={report}
+              index={findings.indexOf(f)}
+              checklist={checklist}
+            />
           ))
         ) : (
           <div className="panel empty-state">
             <ShieldCheck size={26} />
-            <h3>No findings in this category</h3>
+            <h3>No findings match these filters</h3>
             <p>
               This does not establish that the changes are safe. Check coverage
               and verification limits.
