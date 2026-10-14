@@ -33,9 +33,12 @@ export function PRInput({ demo }: { demo: boolean }) {
   return (
     <section className="input-panel" id="analyze">
       <div className="input-panel-heading">
-        <Github size={20} />
-        <h2>What are we reviewing?</h2>
-        <span>PUBLIC REPOSITORIES</span>
+        <Github size={19} />
+        <div>
+          <h2>Start a new analysis</h2>
+          <p>Paste a public pull request URL to investigate its changes.</p>
+        </div>
+        <span>Public repositories</span>
       </div>
       <form onSubmit={start}>
         <label htmlFor="pr-url">GitHub pull request</label>
@@ -53,6 +56,7 @@ export function PRInput({ demo }: { demo: boolean }) {
               autoComplete="off"
               maxLength={300}
               required
+              aria-invalid={!!error}
               aria-describedby={error ? "input-error" : "input-help"}
             />
           </div>
@@ -90,13 +94,13 @@ export function PRInput({ demo }: { demo: boolean }) {
         </p>
       </form>
       <div className="input-bottom">
-        <span>Just exploring? See the agent in action.</span>
+        <span>Try a sample investigation without credentials.</span>
         <Button
           variant="ghost"
           size="small"
           onClick={() => router.push("/analyze?demo=true")}
         >
-          <Play size={13} fill="currentColor" />
+          <Play size={13} />
           Run the demo
           <ArrowRight size={14} />
         </Button>

@@ -8,7 +8,6 @@ import {
   Check,
   Circle,
   LoaderCircle,
-  ScanLine,
   Terminal,
 } from "lucide-react";
 import { STAGES, type AgentEvent } from "@/lib/types";
@@ -89,23 +88,41 @@ export function Progress({
         Back to workspace
       </Link>
       <div className="progress-title">
-        <div className="progress-emblem">
-          <ScanLine size={32} />
-        </div>
         <div className="overline">
           {demo || configuredDemo
             ? "DEMO INVESTIGATION"
             : "AUTONOMOUS INVESTIGATION"}
         </div>
-        <h1>
-          {error ? "Investigation interrupted" : "Following the evidence."}
-        </h1>
+        <h1>{error ? "Investigation interrupted" : "Analyzing the change"}</h1>
         <p>
           {demo || configuredDemo
             ? "acme/platform #127 · Add password reset functionality"
             : `${input}${prNumber ? ` #${prNumber}` : ""}`}
         </p>
       </div>
+      {error && (
+        <div className="error-panel" role="alert">
+          <AlertCircle size={21} />
+          <div>
+            <strong>{error}</strong>
+            <div className="error-actions">
+              <Button
+                size="small"
+                onClick={() => {
+                  setEvents([]);
+                  setError("");
+                  setAttempt((a) => a + 1);
+                }}
+              >
+                Retry analysis
+              </Button>
+              <Button asChild size="small" variant="outline">
+                <Link href="/analyze?demo=true">Run demo instead</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="progress-card">
         <div className="progress-card-head">
           <span>
@@ -134,8 +151,15 @@ export function Progress({
             <li
               key={label}
               className={
-                i < completed ? "done" : i === completed ? "current" : "pending"
+                i < completed
+                  ? "done"
+                  : i === completed
+                    ? error
+                      ? "interrupted"
+                      : "current"
+                    : "pending"
               }
+              aria-current={i === completed ? "step" : undefined}
             >
               {i < completed ? (
                 <Check size={17} />
@@ -151,32 +175,13 @@ export function Progress({
         </ol>
         <div className="live-action" aria-live="polite">
           <Terminal size={16} />
-          <span>{events.at(-1)?.detail || "Preparing the investigation…"}</span>
+          <span>
+            {error
+              ? "Investigation stopped. Your next action is shown above."
+              : events.at(-1)?.detail || "Preparing the investigation…"}
+          </span>
         </div>
       </div>
-      {error && (
-        <div className="error-panel" role="alert">
-          <AlertCircle size={21} />
-          <div>
-            <strong>{error}</strong>
-            <div className="error-actions">
-              <Button
-                size="small"
-                onClick={() => {
-                  setEvents([]);
-                  setError("");
-                  setAttempt((a) => a + 1);
-                }}
-              >
-                Retry analysis
-              </Button>
-              <Button asChild size="small" variant="outline">
-                <Link href="/analyze?demo=true">Run demo instead</Link>
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
       <details className="logs-disclosure">
         <summary>
           View investigation log <span>{events.length} events</span>

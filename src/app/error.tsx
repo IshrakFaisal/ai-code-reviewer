@@ -1,5 +1,7 @@
 "use client";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { AlertCircle } from "lucide-react";
 export default function ErrorPage({
   reset,
 }: {
@@ -8,12 +10,18 @@ export default function ErrorPage({
 }) {
   return (
     <div className="page empty-state">
-      <h1>Something interrupted this page.</h1>
+      <AlertCircle size={28} />
+      <h1>This view could not load</h1>
       <p>
-        Your application is still available. Retry the page or return to the
-        workspace.
+        Try loading it again, or return to your workspace to open another
+        report.
       </p>
-      <Button onClick={reset}>Try again</Button>
+      <div className="error-actions">
+        <Button onClick={reset}>Try again</Button>
+        <Button asChild variant="outline">
+          <Link href="/">Back to workspace</Link>
+        </Button>
+      </div>
     </div>
   );
 }

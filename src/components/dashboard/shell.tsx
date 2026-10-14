@@ -1,19 +1,19 @@
 "use client";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
   ArrowUpRight,
-  Boxes,
   ChevronRight,
   FileClock,
+  FlaskConical,
   GitPullRequest,
+  LayoutGrid,
   Layers3,
-  Plus,
   ScanLine,
-  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
 export function Shell({
   children,
   demo,
@@ -27,77 +27,97 @@ export function Shell({
     : pathname === "/history"
       ? "Analysis history"
       : pathname === "/analyze"
-        ? "Investigation in progress"
+        ? "Investigation"
         : "Overview";
+  const navigation = [
+    {
+      href: "/",
+      label: "Overview",
+      icon: LayoutGrid,
+      active: pathname === "/",
+    },
+    {
+      href: "/#analyze",
+      label: "New analysis",
+      icon: GitPullRequest,
+      active: pathname === "/analyze",
+    },
+    {
+      href: "/history",
+      label: "Analysis history",
+      icon: FileClock,
+      active: pathname === "/history",
+    },
+  ];
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link href="/" className="brand">
+        <Link href="/" className="brand" aria-label="AI Change Verifier home">
           <span className="brand-icon">
-            <ScanLine size={23} />
+            <ScanLine size={21} strokeWidth={1.8} />
           </span>
           <span>
-            change<span className="brand-muted">verifier</span>
-            <small>AI VERIFICATION WORKSPACE</small>
+            Change Verifier<small>AI verification workspace</small>
           </span>
         </Link>
         <div className="workspace">
-          <span className="workspace-avatar">A</span>
+          <span className="workspace-avatar">W</span>
           <span>
-            Acme workspace<small>Hackathon edition</small>
+            My workspace<small>Local environment</small>
           </span>
-          <ChevronRight size={15} />
         </div>
-        <div className="nav-label">WORKSPACE</div>
+        <div className="nav-label">Workspace</div>
         <nav aria-label="Main navigation">
-          <Link
-            className={cn("nav-item", pathname === "/" && "active")}
-            href="/"
-          >
-            <Boxes size={18} />
-            Overview
-          </Link>
-          <Link
-            className={cn("nav-item", pathname === "/analyze" && "active")}
-            href="/#analyze"
-          >
-            <GitPullRequest size={18} />
-            New analysis
-            <Plus size={14} className="nav-end" />
-          </Link>
-          <Link
-            className={cn("nav-item", pathname === "/history" && "active")}
-            href="/history"
-          >
-            <FileClock size={18} />
-            Analysis history
-          </Link>
+          {navigation.map(({ href, label: name, icon: Icon, active }) => (
+            <Link
+              key={href}
+              href={href}
+              className={cn("nav-item", active && "active")}
+              aria-current={active ? "page" : undefined}
+              title={name}
+            >
+              <Icon size={18} strokeWidth={1.7} />
+              <span>{name}</span>
+            </Link>
+          ))}
         </nav>
-        <div className="nav-label nav-second">RESOURCES</div>
+        <div className="nav-label nav-second">Explore</div>
         <nav aria-label="Resources">
-          <Link className="nav-item" href="/#workflow">
-            <Layers3 size={18} />
-            How it works
+          <Link
+            className={cn("nav-item", pathname === "/report/demo" && "active")}
+            href="/report/demo"
+            aria-current={pathname === "/report/demo" ? "page" : undefined}
+            title="Sample report"
+          >
+            <FlaskConical size={18} strokeWidth={1.7} />
+            <span>Sample report</span>
+          </Link>
+          <Link className="nav-item" href="/#workflow" title="How it works">
+            <Layers3 size={18} strokeWidth={1.7} />
+            <span>How it works</span>
           </Link>
           <a
             className="nav-item"
             href="https://docs.tokenfactory.nebius.com"
             target="_blank"
             rel="noreferrer"
+            title="Nebius documentation"
           >
-            <Activity size={18} />
-            Nebius docs
-            <ArrowUpRight size={14} className="nav-end" />
+            <ArrowUpRight size={18} strokeWidth={1.7} />
+            <span>Nebius documentation</span>
           </a>
         </nav>
         <div className="sidebar-bottom">
-          <div className="engine-card">
-            <ShieldCheck size={20} />
-            <strong>Evidence over assumptions.</strong>
-            <p>Every conclusion has a source. Every unknown stays visible.</p>
+          <div className="workspace-note">
+            <strong>Evidence, with context.</strong>
+            <p>
+              Inspect what was checked.
+              <br />
+              Decide what happens next.
+            </p>
           </div>
           <div className="powered">
-            BUILT FOR
+            Powered by{" "}
             <span>
               Nebius <i>×</i> NVIDIA
             </span>
@@ -105,43 +125,50 @@ export function Shell({
           <div className="profile">
             <span className="avatar">D</span>
             <span>
-              Developer workspace<small>Local · v0.1.0</small>
+              Developer<small>Local workspace · v0.1</small>
             </span>
           </div>
         </div>
       </aside>
       <div className="main-column">
         <header className="topbar">
-          <div>
+          <div className="topbar-breadcrumb">
             <Link href="/" className="mobile-brand" aria-label="Workspace home">
-              <ScanLine size={21} />
+              <ScanLine size={20} />
             </Link>
-            <span className="topbar-muted">Workspace</span>
-            <ChevronRight size={14} />
+            <Link href="/" className="topbar-muted">
+              Workspace
+            </Link>
+            <ChevronRight size={13} />
             <span>{label}</span>
           </div>
-          <div>
-            <Link
-              href="/history"
-              className="mobile-history"
-              aria-label="Analysis history"
-            >
-              <FileClock size={18} />
-            </Link>
-            {demo ? (
-              <span className="mode-badge">DEMO MODE</span>
-            ) : (
-              <span className="live-badge">LIVE ANALYSIS</span>
-            )}
+          <div className="topbar-status">
+            <span className={demo ? "mode-badge" : "live-badge"}>
+              {demo ? "Demo mode" : "Live mode"}
+            </span>
             <span className="topbar-divider" />
-            <span className="avatar small">D</span>
+            <span className="avatar small" aria-label="Developer workspace">
+              D
+            </span>
           </div>
         </header>
+        <nav className="mobile-nav" aria-label="Mobile navigation">
+          {navigation.map(({ href, label: name, icon: Icon, active }) => (
+            <Link
+              key={href}
+              href={href}
+              className={cn(active && "active")}
+              aria-current={active ? "page" : undefined}
+            >
+              <Icon size={16} />
+              <span>{name}</span>
+            </Link>
+          ))}
+        </nav>
         <main id="main-content">{children}</main>
         <footer className="app-footer">
           <span>AI Change Verifier</span>
-          <span>Reason. Verify. Prioritize.</span>
-          <span>Human judgment stays in the loop.</span>
+          <span>Evidence informs. You decide.</span>
         </footer>
       </div>
     </div>

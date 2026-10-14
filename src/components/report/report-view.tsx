@@ -36,6 +36,7 @@ import {
   type ReviewChecklist,
 } from "./review-checklist";
 import { reviewStatuses, type ReviewStatus } from "@/lib/reports/review";
+import { ReportNavigation } from "./report-navigation";
 
 function StatusIcon({ status }: { status: Evidence["status"] }) {
   return status === "PASS" ? (
@@ -272,7 +273,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
       <div className="report-title">
         <div className="overline">
           <GitPullRequest size={15} />
-          AI CHANGE VERIFICATION<span>PR #{pr.number}</span>
+          Pull request analysis<span>PR #{pr.number}</span>
         </div>
         <h1>{pr.title}</h1>
         <div className="report-meta">
@@ -329,16 +330,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           </span>
         </div>
       )}
-      <nav className="report-nav" aria-label="Report sections">
-        <a href="#summary">Overview</a>
-        <a href="#findings">
-          Findings <span>{findings.length}</span>
-        </a>
-        <a href="#verification">Verification</a>
-        <a href="#human-review">Your review</a>
-        <a href="#files">Changed files</a>
-        <a href="#agent-log">Agent log</a>
-      </nav>
+      <ReportNavigation findings={findings.length} />
       <section id="summary">
         <div className="section-heading compact">
           <h2>Review summary</h2>
@@ -348,9 +340,6 @@ export function ReportView({ report }: { report: AnalysisReport }) {
         </div>
         <div className="summary-grid">
           <div className="summary-card summary-high">
-            <span className="summary-icon">
-              <Target size={19} />
-            </span>
             <strong>{high.toString().padStart(2, "0")}</strong>
             <div>
               <h3>Require human attention</h3>
@@ -358,9 +347,6 @@ export function ReportView({ report }: { report: AnalysisReport }) {
             </div>
           </div>
           <div className="summary-card summary-medium">
-            <span className="summary-icon">
-              <AlertCircle size={19} />
-            </span>
             <strong>{medium.toString().padStart(2, "0")}</strong>
             <div>
               <h3>Worth reviewing</h3>
@@ -368,9 +354,6 @@ export function ReportView({ report }: { report: AnalysisReport }) {
             </div>
           </div>
           <div className="summary-card summary-low">
-            <span className="summary-icon">
-              <Check size={19} />
-            </span>
             <strong>{low.toString().padStart(2, "0")}</strong>
             <div>
               <h3>Lower priority</h3>
