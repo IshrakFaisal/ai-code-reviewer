@@ -40,6 +40,7 @@ import { ReportNavigation } from "./report-navigation";
 import { reanalysisHref } from "@/lib/reports/history";
 import { VerificationGaps } from "./verification-gaps";
 import { FindingHandoff } from "./finding-handoff";
+import { ChangeWorkbench } from "./change-workbench";
 
 function StatusIcon({ status }: { status: Evidence["status"] }) {
   return status === "PASS" ? (
@@ -377,6 +378,13 @@ export function ReportView({ report }: { report: AnalysisReport }) {
         </div>
       </div>
       <ReportNavigation findings={findings.length} />
+      <ChangeWorkbench
+        report={report}
+        onOpenFinding={() => {
+          setFilter("ALL");
+          setDecisionFilter("ALL");
+        }}
+      />
       <section id="summary">
         <div className="section-heading compact">
           <h2>Review summary</h2>

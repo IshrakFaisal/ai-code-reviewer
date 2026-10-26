@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 const sections = [
+  ["workbench", "Workbench"],
   ["summary", "Overview"],
   ["human-review", "Your review"],
   ["findings", "Findings"],
@@ -14,7 +15,7 @@ const sections = [
 ] as const;
 
 export function ReportNavigation({ findings }: { findings: number }) {
-  const [active, setActive] = useState<string>("summary");
+  const [active, setActive] = useState<string>("workbench");
   useEffect(() => {
     const update = () => {
       const ordered = sections
@@ -27,7 +28,7 @@ export function ReportNavigation({ findings }: { findings: number }) {
       const current = ordered
         .filter((element) => element.getBoundingClientRect().top <= 160)
         .at(-1);
-      setActive(current?.id || "summary");
+      setActive(current?.id || "workbench");
     };
     update();
     window.addEventListener("scroll", update, { passive: true });

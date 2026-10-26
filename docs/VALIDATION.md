@@ -1,5 +1,15 @@
 # Validation record
 
+## Navy workbench interface — October 26, 2026
+
+- `npm run lint`, `npm run typecheck`, and the optimized production build pass without warnings. The checks were repeated after the final UI fixes.
+- `npm test`: 369 passed, with 2 optional sandbox integrations skipped across 36 files. Four new diff tests verify independent revision line numbers, multiple hunks, new-file/CRLF/no-newline handling, and metadata without invented source positions.
+- Production browser checks passed for file selection/search/empty results, unified diff and generated-test switching, failed assertion output, unexecuted evidence labels, partial-patch scope, and full-finding navigation that clears active finding filters.
+- Overview, history, workspace, settings, guide, report, and reproduction pages were inspected with the shared navy/ice-blue palette. History search and mode filtering retained URL state. Report layouts were checked at 1440, 768, 390, and 320 pixels with no document-level horizontal overflow at the narrow widths.
+- Browser QA used existing saved reports and the synthetic sample. No live model requests, real sandbox executions, GitHub writes, reviewer-note edits, or environment changes were needed. Docker setup remains pending on this host; the skipped checks do not establish live container execution.
+
+The updated production preview runs at `http://127.0.0.1:3001`. Browser console checks found no warnings or errors. Saved proof: `artifacts/navy-workbench-desktop.png` and `artifacts/navy-workbench-mobile.png`. Windows Git line-ending notices remain informational; `git diff --check` passes.
+
 ## Existing workflow improvements — October 26, 2026
 
 | Check                 | Result                                                                                                                                                                                                          |

@@ -95,6 +95,7 @@ export function Shell({
           className={cn("workspace", pathname === "/workspace" && "active")}
           aria-current={pathname === "/workspace" ? "page" : undefined}
           title="Open local workspace"
+          aria-label="Local workspace"
         >
           <span className="workspace-avatar">
             <Layers3 size={17} />
@@ -113,6 +114,7 @@ export function Shell({
               className={cn("nav-item", active && "active")}
               aria-current={active ? "page" : undefined}
               title={name}
+              aria-label={name}
             >
               <Icon size={18} strokeWidth={1.7} />
               <span>{name}</span>
@@ -126,6 +128,7 @@ export function Shell({
             href="/report/demo"
             aria-current={pathname === "/report/demo" ? "page" : undefined}
             title="Sample report"
+            aria-label="Sample report"
           >
             <FlaskConical size={18} strokeWidth={1.7} />
             <span>Sample report</span>
@@ -134,6 +137,7 @@ export function Shell({
             className={cn("nav-item", pathname === "/how-it-works" && "active")}
             href="/how-it-works"
             title="How it works"
+            aria-label="How it works"
             aria-current={pathname === "/how-it-works" ? "page" : undefined}
           >
             <BookOpen size={18} strokeWidth={1.7} />
@@ -145,6 +149,7 @@ export function Shell({
             target="_blank"
             rel="noreferrer"
             title="Nebius documentation"
+            aria-label="Nebius documentation"
           >
             <ArrowUpRight size={18} strokeWidth={1.7} />
             <span>Nebius documentation</span>
@@ -162,6 +167,7 @@ export function Shell({
             href="/settings"
             aria-current={pathname === "/settings" ? "page" : undefined}
             title="Settings & integrations"
+            aria-label="Settings & integrations"
           >
             <span className="settings-icon">
               <Settings2 size={18} />
@@ -176,6 +182,9 @@ export function Shell({
       <div className="main-column">
         <header className="topbar">
           <div className="topbar-breadcrumb">
+            <Link href="/" className="topbar-product">
+              Change Verifier
+            </Link>
             <Link href="/" className="mobile-brand" aria-label="Workspace home">
               <ScanLine size={20} />
             </Link>
