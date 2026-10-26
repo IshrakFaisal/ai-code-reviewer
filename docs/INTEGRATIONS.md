@@ -41,6 +41,10 @@ Docker's [security documentation](https://docs.docker.com/engine/security/) and 
 
 ## Nebius remote execution
 
+The **Reproduce & repair** workflow uses the same provider gate and repository allowlist. It prepares separate immutable base/head checkouts, compares matching environment fingerprints, and runs the same generated Vitest source twice per revision. A subsequent repair request confirms the head failure, calls the configured Nebius model for a bounded source replacement, and runs unchanged assertions plus repository checks. Source writes are limited to supplied existing application files with matching SHA-256 hashes; test/configuration paths and symlink/hardlink files are rejected. Native execution is not offered for this workflow. No GitHub write integration is added.
+
+The bundled reproduction/repair walkthrough does not invoke this remote provider. Its five-case evaluation is curated fixture execution, not live model evaluation. Use a supported public repository and explicit execution settings to validate account/image compatibility end to end.
+
 - [Official sandbox overview](https://docs.tokenfactory.nebius.com/sandboxes/overview)
 - [Sandbox authentication and image listing](https://docs.tokenfactory.nebius.com/api-reference/sandboxes/images/list-publicly-available-images)
 - [Create an execution operation](https://docs.tokenfactory.nebius.com/api-reference/sandboxes/instances/spawn-a-new-container-instance)

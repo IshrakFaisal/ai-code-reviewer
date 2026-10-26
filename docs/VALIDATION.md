@@ -1,5 +1,135 @@
 # Validation record
 
+## Existing workflow improvements — October 26, 2026
+
+| Check                 | Result                                                                                                                                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run lint`        | Pass, no warnings                                                                                                                                                                                               |
+| `npm run typecheck`   | Pass                                                                                                                                                                                                            |
+| `npm test`            | 365 passed; 2 optional sandbox integrations skipped (35 files)                                                                                                                                                  |
+| `npm run build`       | Pass                                                                                                                                                                                                            |
+| Stream contracts      | Split UTF-8/CRLF, terminal JSON without newline, malformed messages, byte limits, stalled/cancelled reads, reader cleanup, HTML errors, authentication, rate-limit retry delay, and validated report IDs passed |
+| Saved evidence        | Structural/hash/revision/verdict/repair validation, corrupt or oversized files, stale scope, preserved valid saves, and newline-containing assertion names covered                                              |
+| Browser history       | Search + mode + priority survived reload, Back, Clear filters, and a report visit; new demo report appeared in history                                                                                          |
+| Browser investigation | Full 14-stage demo completed through validated messages; returning to the input form left both actions enabled                                                                                                  |
+| Browser reproduction  | Comparison, curated repair, saved-result reload, and assertion outcome table passed through validated streaming and persistence                                                                                 |
+| Responsive checks     | Comparison at 1440, 768, 390 and 320 pixels; filtered history at 320 pixels; no document-level overflow                                                                                                         |
+| Browser diagnostics   | No warnings or errors                                                                                                                                                                                           |
+
+History uses the installed Next.js native-history integration so changing filters does not refetch report payloads. Search edits replace the current history entry; discrete mode/priority changes and Clear filters add entries for Back/Forward navigation. Only report summary metadata reaches the history controls.
+
+Both streamed workflows now share bounded decoding, idle/deadline handling, terminal-message validation, and reader cancellation. Unexpected/truncated completion messages ask the user to reload saved results before retrying. Regression records are checked before display and before replacement; invalid or stale records offer recovery. The comparison retains raw outputs while presenting individual named assertions and explaining inconclusive results. The Docker setup helper now recognizes tabs/spacing and preserves Windows line endings without touching unrelated credential values.
+
+Thirty-one meaningful regression tests were added. Browser QA created one new synthetic analysis report and refreshed only the sample reproduction artifact; no reviewer notes, `.env.local` settings, live model calls, real sandbox runs, or GitHub writes were changed. Docker installation/configuration remains the user's pending machine setup.
+
+Saved proof: `artifacts/improved-assertion-comparison-desktop.jpg`, `artifacts/improved-assertion-comparison-mobile.jpg`, and `artifacts/improved-history-filters.jpg`. Preview: `http://127.0.0.1:3001`. Git emits Windows line-ending notices; whitespace checks pass.
+
+## Reproduce, repair, and recheck — October 26, 2026
+
+| Check                          | Result                                                                                                                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run lint`                 | Pass, no warnings                                                                                                                                                           |
+| `npm run typecheck`            | Pass                                                                                                                                                                        |
+| `npm test`                     | 334 passed; 2 opt-in sandbox integrations skipped (32 files)                                                                                                                |
+| `npm run build`                | Pass, including the reproduction page and streamed action endpoint                                                                                                          |
+| `npm run evaluate:regressions` | All five curated cases matched expected classifications; measured case times 234–392 ms in the standalone run                                                               |
+| Actual Vitest compatibility    | Unchanged source executed twice per trusted fixture variant with the installed isolated Vitest harness; PASS/PASS at base and FAIL/FAIL at head parsed correctly            |
+| Live NVIDIA/Nebius inference   | `npm run verify:nebius` passed catalog access and a Zod-validated structured completion for `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`                                         |
+| Production browser workflow    | Repeated base/head fixture comparison, curated repair, assertion disclosure, saved-result reload, and cancellation preserving saved evidence passed                         |
+| Downloads                      | Evidence bundle, unchanged test, proposed patch, and reproduction instructions downloaded successfully; source/patch/instructions exactly matched bundle files              |
+| Responsive checks              | Workflow at 1440, 768, 390, and 320 pixels; no document-level horizontal overflow                                                                                           |
+| Browser console                | No warnings or errors in the final checks                                                                                                                                   |
+| Docker setup helper            | Eight tests cover exact-repository selection, preservation of unrelated credentials/configuration, repeated keys, production gate, line endings, and unsafe input rejection |
+| `npm run docker:check`         | Expected prerequisite failure: Docker Desktop/CLI is not installed. No environment values were changed                                                                      |
+
+Sixty-five new tests exercise stable assertion comparison, failure provenance, environment/test identity, repeatability, source integrity, repair rechecks, API authentication/origin/body limits, storage, exports, actual guarded source replacement, curated evaluation, and Docker configuration. Setup/type errors and unexpected failures remain inconclusive. Existing report evidence and reviewer decisions are not upgraded or rewritten by this workflow.
+
+The five evaluation cases and browser walkthrough execute application-owned synthetic source only. Their curated repairs and illustrative commit identifiers are explicitly labeled; they are not model accuracy measurements or verification of GitHub code. The real Vitest compatibility check also uses trusted test fixtures and does not establish container isolation. Browser QA saved one separate demo reproduction artifact without creating or modifying an analysis report or reviewer note.
+
+The live inference check made one small credentialed request and confirmed service connectivity/structured output. No real Docker/Nebius sandbox execution, arbitrary repository code, model-generated repair execution, GitHub writes, or public deployment was performed. The user selected Docker; installation/first-run setup remains their manual step. The exact-repository setup command only writes configuration after the Linux engine and official image are available; `.env.local` has not been changed during this task.
+
+An initial test helper omitted the required `NODE_ENV` type and an unused type import produced a lint warning; both were fixed before the final passing checks. Git reports Windows line-ending notices; `git diff --check` passes.
+
+The production preview is running at `http://127.0.0.1:3001`; open `/report/demo/reproduce/finding-1` for the fixture walkthrough. Saved proof: `artifacts/regression-workflow-desktop.jpg`, `artifacts/regression-workflow-mobile.jpg`, and `artifacts/regression-evaluation.txt`. The remaining Docker steps are in [DOCKER-WINDOWS.md](DOCKER-WINDOWS.md), and the submission demo outline is in [DEMO.md](DEMO.md).
+
+## Workspace navigation and product guide — October 25, 2026
+
+| Check                | Result                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `npm run lint`       | Pass, no warnings                                                                                             |
+| `npm run typecheck`  | Pass                                                                                                          |
+| `npm test`           | 269 passed; 2 opt-in sandbox integrations skipped (26 files)                                                  |
+| `npm run build`      | Pass, including `/workspace`, `/settings`, and `/how-it-works`                                                |
+| Workspace navigation | Real report counts, repository groups, recent reports, and repository links to prefilled history passed       |
+| Settings navigation  | Sidebar and header links, read-only configuration, execution prerequisites, and Refresh status passed         |
+| Detailed guide       | Nine sections, contents links, all 14 investigation stages, FAQ disclosures, and analysis links passed        |
+| Responsive checks    | New pages fit at 320 pixels; guide checked at 768 and 1440 pixels; no document-level horizontal overflow      |
+| Existing report      | Saved report opened with findings, verification, gaps, comparison link, diffs, and investigation log retained |
+
+Eight new tests cover workspace aggregation and a configuration summary that returns presence flags and fixed provider names without credential values. Settings makes no live provider requests, does not establish connectivity, and does not edit `.env.local`. Configuration changes still require a server restart. No new reports, reviewer notes, credentialed inference requests, sandbox runs, or GitHub writes were created during browser QA.
+
+The sidebar now opens actual workspace and integration pages instead of presenting inactive identity controls. The dedicated guide explains risk, evidence provenance, execution gates, data limits, and the current product boundaries. An initial provider type inference error was corrected before the passing validations. Git emits Windows line-ending notices; whitespace checks pass.
+
+The production preview is running at `http://127.0.0.1:3001`. Browser proof is saved in ignored `artifacts/`: `professional-guide-desktop.jpg`, `professional-guide-mobile.jpg`, `professional-settings-desktop.jpg`, and `professional-workspace.jpg`.
+
+## Verification gaps and finding handoff — October 19, 2026
+
+| Check                     | Result                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run lint`            | Pass, no warnings                                                                                                                                                                          |
+| `npm run typecheck`       | Pass                                                                                                                                                                                       |
+| `npm test`                | 261 passed; 2 opt-in sandbox integrations skipped (25 files)                                                                                                                               |
+| `npm run build`           | Pass, Next.js 16.3.6 production build                                                                                                                                                      |
+| Evidence contracts        | 18 new tests cover file-scope boundaries, execution/static/skipped/fixture states, duplicate records, filters, patch limits, export revision checks, Markdown escaping, and download names |
+| Production gap explorer   | Summary, high-risk filter, static filter, path search, empty results/reset, ten-row expansion, and expanded evidence passed                                                                |
+| File/finding navigation   | Correct original file index opens its diff; related-findings navigation clears filters and shows all findings                                                                              |
+| Production handoff        | Unsaved-note export guard, saved decision/note inclusion, clipboard copy, Markdown download, and proposed-test download passed                                                             |
+| Download integrity        | Downloaded test source exactly matched the recorded template; Markdown retained demo labeling, pinned commits, and the saved note                                                          |
+| Responsive/browser checks | Desktop at 1440 pixels and phone layouts at 390/320 pixels; no document overflow or browser warnings/errors; export controls also checked by keyboard                                      |
+
+The explorer uses exact evidence file-path links rather than assuming that a finding location or an unscoped passing build establishes file verification. Static PASS, NOT_RUN, and fixture-only evidence do not count as repository execution. Failed execution remains visible as a failure; path linkage is not line or behavioral coverage. Drafts are local exports and nothing is automatically posted to GitHub. Downloads never run proposed source.
+
+One new demo report was created for QA, and only that report received the test reviewer note. The synthetic investigation completed its existing fixture workflow. No credentialed inference, remote sandbox run, or live PR reanalysis was performed. No additional dependencies or credentials are required for the new report tools. The local production preview is running at `http://127.0.0.1:3001`.
+
+Browser proof is stored in ignored `artifacts/`: `verification-gaps-desktop.jpg`, `verification-gaps-mobile.jpg`, and `finding-handoff-desktop.jpg`. Git emits Windows line-ending notices; whitespace checks pass.
+
+## Slate and copper palette — October 16, 2026
+
+Replaced the green branding with dark slate navigation, burnt-orange actions, peach analysis panels, and warm stone backgrounds. Updated the shared colors, focus states, charts, code surfaces, mobile navigation, and favicon. Semantic green remains for low risk, passing/completed checks, and added diff lines. No application logic changed.
+
+Lint, explicit type checking, the production build, and whitespace checks passed. The browser confirmed the new rendered colors on the workspace and no document overflow at 320 pixels on the workspace, report, or comparison. No browser warnings or errors were recorded. Key contrast checks include primary buttons (6.31:1), muted text on the darkest accent surface (4.67:1), and sidebar text (8.03:1). The current production preview is `http://127.0.0.1:3001`; its screenshot is saved at `artifacts/copper-workspace-desktop.jpg`.
+
+## Color palette refinement — October 16, 2026
+
+The workspace now uses a forest-green sidebar and mobile navigation, a warm ivory canvas, cream report surfaces, mint analysis tools, and sand/clay supporting accents. Primary controls, focused navigation, the favicon, report summaries, and comparisons follow the same palette. Risk and evidence labels retain their existing meanings.
+
+`npm run lint`, `npm run typecheck`, `npm run build`, and `git diff --check` passed. Browser checks covered workspace, filtered history, saved reports, and comparison pages on desktop and small screens; no document-level overflow at 320 pixels or browser warnings/errors were observed. Key text pairs were checked for contrast, including sidebar navigation, primary buttons, semantic status badges, and muted text on tinted surfaces (minimum 4.62:1 among the final checked pairs).
+
+This change touches styling and the favicon, with no changes to analysis or API behavior. No additional tests were added for color constants. The local production app is running at `http://127.0.0.1:3001`. Proof is saved in ignored `artifacts/`: `color-workspace-desktop.jpg`, `color-workspace-mobile.jpg`, and `color-report-desktop.jpg`.
+
+## Follow-up review features — October 16, 2026
+
+| Check                 | Result                                                                                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run lint`        | Pass, no warnings                                                                                                                                                                                                  |
+| `npm run typecheck`   | Pass                                                                                                                                                                                                               |
+| `npm test`            | 243 passed; 2 opt-in sandbox integrations skipped (24 files)                                                                                                                                                       |
+| `npm run build`       | Pass, including `/report/[id]/compare`                                                                                                                                                                             |
+| Comparison contracts  | 16 new tests cover PR/mode/time boundaries, matching after line/ID changes, ambiguity, evidence/provenance changes, multiple assertions, risk-area changes, metadata-only history, search filters, and rerun links |
+| Production history    | Combined repository/PR search, mode and priority filters, zero-result feedback, and Clear filters passed                                                                                                           |
+| Production comparison | Default and alternate eligible baselines, unrelated-baseline rejection, first-run empty state, full commit scope, and assertion-level result pairing passed                                                        |
+| Production reruns     | Live rerun opened a canonical prefilled form; demo rerun completed and saved a separate report that compared with earlier runs                                                                                     |
+| Responsive checks     | Comparison at 1440, 768, 390, and 320 pixels; history and report at 320 pixels; no document-level horizontal overflow                                                                                              |
+| Browser console       | No warnings or errors in the final production checks                                                                                                                                                               |
+
+The new comparison uses saved observations and retains original evidence statuses. A missing match does not establish a fix, checks are not re-executed by comparing, and reviewer decisions remain with their original report. Checks with the same type/files use descriptions to distinguish multiple assertions; ambiguous duplicates are not paired by array position. No new dependencies, credentials, or external GitHub writes were introduced.
+
+UI validation created one new synthetic demo report. It used the existing fixture execution pipeline and made no credentialed inference or remote sandbox calls. Existing live reports were inspected locally; the live rerun form was not submitted. The optional Docker and Nebius integration tests remain skipped.
+
+An initial restricted lint process stalled and was interrupted; the final lint run with normal Windows permissions passed. PowerShell dropped an npm-forwarded port argument on the first preview start; starting the installed Next.js CLI directly succeeded. The production preview is running at `http://127.0.0.1:3001`. Git reports Windows line-ending conversion notices; `git diff --check` passes.
+
+Browser proof is saved in ignored `artifacts/`: `followup-comparison-desktop.jpg`, `followup-comparison-mobile.jpg`, and `followup-history-desktop.jpg`.
+
 ## Workspace UI redesign — October 14, 2026
 
 | Check                     | Result                                                                                                                                                              |

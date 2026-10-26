@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sandboxFileProgram } from "./file-program";
+import { validateRepairPath } from "@/lib/regression/repair";
 import type { PullRequest } from "@/lib/types";
 import type { CommandId, CommandResult, SandboxProvider } from "./provider";
 import { sandboxAllowed, selectedSandboxProvider } from "./factory";
@@ -50,6 +51,7 @@ export class DockerSandboxProvider implements SandboxProvider {
   private readonly yarnRcFilename = `.change-verifier-${randomUUID()}.yarnrc.yml`;
   private created = false;
   private offline = false;
+  private imageIdentity = "";
   private manager?: PackageManager;
 
   constructor(
@@ -115,6 +117,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       throw new Error(
         `Sandbox image is not available locally. Pull the configured ${image} image before enabling execution.`,
       );
+    this.imageIdentity = imageId;
     const args = [
       "create",
       "--name",
@@ -285,6 +288,36 @@ export class DockerSandboxProvider implements SandboxProvider {
   async writeFile(relative: string, content: string) {
     validateRelativePath(relative, true);
     await this.writeArtifact(relative, content);
+  }
+
+  async runtimeIdentity() {
+    const result = await this.exec("node", [
+      "-p",
+      "JSON.stringify([process.version,process.platform,process.arch])",
+    ]);
+    if (result.exitCode !== 0 || result.timedOut)
+      throw new Error("Runtime identity is unavailable.");
+    return JSON.stringify([this.imageIdentity, JSON.parse(result.output)]);
+  }
+
+  async replaceSource(
+    relative: string,
+    expectedSha256: string,
+    content: string,
+  ) {
+    if (!this.offline)
+      throw new Error("Source repairs require offline execution.");
+    validateRepairPath(relative);
+    const result = await this.exec(
+      "node",
+      ["-e", FILE_PROGRAM, "replace", relative],
+      CHECKOUT,
+      { input: JSON.stringify({ expectedSha256, content }) },
+    );
+    if (result.exitCode !== 0 || result.timedOut)
+      throw new Error(
+        "Source replacement failed its path, size, or original-hash guard.",
+      );
   }
 
   async installDependencies(): Promise<CommandResult> {

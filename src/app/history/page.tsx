@@ -1,9 +1,15 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import type { Metadata } from "next";
 import { History, Plus } from "lucide-react";
 import { listReports } from "@/lib/reports/store";
-import { ReportList } from "@/components/report/report-list";
+import { HistoryBrowser } from "@/components/report/history-browser";
+import { summarizeReport } from "@/lib/reports/history";
 import { Button } from "@/components/ui/button";
 
+export const metadata: Metadata = {
+  title: "Analysis history · AI Change Verifier",
+};
 export default async function HistoryPage() {
   const reports = await listReports();
   return (
@@ -24,13 +30,6 @@ export default async function HistoryPage() {
           </Link>
         </Button>
       </div>
-      <div className="list-toolbar">
-        <span>
-          <strong>{reports.length}</strong>{" "}
-          {reports.length === 1 ? "report" : "reports"}
-        </span>
-        <span>Most recent first · Up to 100 retained locally</span>
-      </div>
       {!reports.length ? (
         <div className="panel empty-state">
           <History size={28} />
@@ -44,7 +43,9 @@ export default async function HistoryPage() {
           </Button>
         </div>
       ) : (
-        <ReportList reports={reports} />
+        <Suspense fallback={<p role="status">Loading saved analyses…</p>}>
+          <HistoryBrowser reports={reports.map(summarizeReport)} />
+        </Suspense>
       )}
     </div>
   );

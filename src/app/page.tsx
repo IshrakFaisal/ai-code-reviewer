@@ -4,10 +4,18 @@ import { getConfig } from "@/lib/config";
 import { listReports } from "@/lib/reports/store";
 import { PRInput } from "@/components/github/pr-input";
 import { ReportList } from "@/components/report/report-list";
+import { summarizeReport } from "@/lib/reports/history";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { demo } = getConfig();
   const reports = await listReports();
+  const query = await searchParams;
+  const initialInput =
+    typeof query.input === "string" ? query.input.slice(0, 300) : "";
   return (
     <div className="page home-page">
       <div className="page-heading">
@@ -43,7 +51,7 @@ export default async function Home() {
         </span>
         <span className="stats-caption">Stored locally in your workspace</span>
       </div>
-      <PRInput demo={demo} />
+      <PRInput key={initialInput} demo={demo} initialInput={initialInput} />
       <section className="recent-section" aria-labelledby="recent-heading">
         <div className="section-heading">
           <div>
@@ -56,7 +64,7 @@ export default async function Home() {
           </Link>
         </div>
         {reports.length ? (
-          <ReportList reports={reports.slice(0, 4)} />
+          <ReportList reports={reports.slice(0, 4).map(summarizeReport)} />
         ) : (
           <div className="recent-empty">
             <GitPullRequest size={20} />
@@ -104,6 +112,13 @@ export default async function Home() {
             <span>Second request: expected 400, received 200</span>
           </div>
           <p>Real execution against the bundled demo fixture.</p>
+          <Link
+            className="text-link"
+            href="/report/demo/reproduce/finding-1"
+            prefetch={false}
+          >
+            Try reproduce &amp; repair <ArrowRight size={14} />
+          </Link>
         </div>
       </section>
       <section
@@ -113,7 +128,10 @@ export default async function Home() {
       >
         <div className="section-heading">
           <h2 id="workflow-heading">How verification works</h2>
-          <span className="subtle">From change to review</span>
+          <Link href="/how-it-works" className="text-link">
+            Read the complete guide
+            <ArrowRight size={14} />
+          </Link>
         </div>
         <div className="workflow-grid">
           {[

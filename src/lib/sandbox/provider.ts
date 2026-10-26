@@ -14,5 +14,12 @@ export interface SandboxProvider {
   runCommand(command: CommandId, testFile?: string): Promise<CommandResult>;
   readFile(path: string): Promise<string>;
   writeFile(path: string, content: string): Promise<void>;
+  /** Optional capabilities used only by isolated regression/repair workflows. */
+  runtimeIdentity?(): Promise<string>;
+  replaceSource?(
+    path: string,
+    expectedSha256: string,
+    content: string,
+  ): Promise<void>;
   destroySandbox(): Promise<void>;
 }

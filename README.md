@@ -4,6 +4,8 @@
 
 A functional hackathon MVP for the **Nebius × NVIDIA Global AI Hackathon**. It turns a GitHub pull request into behavioral observations, bounded risk investigations, targeted test proposals, and an evidence-backed review map.
 
+**Reproduce → Repair → Recheck:** investigate a finding with the same test at both pinned commits, inspect repeated assertion results, and request a bounded source repair that is tested inside an isolated sandbox. Export the evidence, unchanged test, harness, reproduction instructions, and proposed patch for human review.
+
 ## Run locally
 
 Use **Node.js 22 LTS (22.13+) or 24 LTS** and npm. No database, API key, Docker, or remote sandbox is needed for the demo.
@@ -25,7 +27,7 @@ Copy-Item .env.example .env.local
 cp .env.example .env.local
 ```
 
-Keep `DEMO_MODE=true` for judging. Restart the development server after changing environment variables.
+Use `DEMO_MODE=true` for a credential-free fixture walkthrough. To demonstrate actual NVIDIA/Nebius inference, use `DEMO_MODE=false` with the configured key and an exact eligible model; live repository execution additionally needs its sandbox configuration. Restart the server after changing environment variables.
 
 Production build (still a local, single-user MVP):
 
@@ -35,6 +37,42 @@ npm start
 ```
 
 Both commands bind to loopback by default. Reports are stored in `.data/reports/` and survive server restarts on the same filesystem. The newest 100 are retained. There is no PostgreSQL dependency.
+
+## Workspace navigation and product guide
+
+Use **Local workspace** in the sidebar to open `/workspace`, which shows real saved-report counts, analyzed GitHub repositories, and recent activity. Repository rows open prefiltered analysis history. **Settings & integrations** replaces the decorative developer identity and opens `/settings`; the top-bar settings icon provides the same access on smaller screens.
+
+Settings displays server configuration presence and execution prerequisites without exposing credential values or making provider test requests. Update `.env.local` on the server and restart to change configuration. A configured value is not evidence that network access or account permissions work.
+
+**How it works** opens `/how-it-works`, a dedicated guide with quick start instructions, the full investigation pipeline, risk scoring, evidence status/provenance, analysis modes, execution requirements, review/follow-up tools, data limits, and FAQs. A linked contents list, fourteen-stage disclosure, and mobile Guide navigation make the detailed content accessible.
+
+## Reproduce, repair, and recheck
+
+Open **Reproduce & repair** on a finding with a generated test, or use **Try reproduce & repair** on the overview. The dedicated page streams progress, saves the latest evidence separately from the original report, and survives reloads.
+
+The assertion comparison shows each named assertion at base, head, and any repaired revision, including repeated-pass/fail, unstable, and missing results. A concise explanation identifies the result's limits and next action. During a rerun, the previous saved result is explicitly labeled. Saved evidence is shape-validated and checked against its test/source hashes, revisions, verdict, and repair checks before reuse; corrupt or stale records show a recovery message instead of enabling a repair.
+
+1. **Reproduce:** run the identical generated Vitest source twice at each exact base/head commit, in separate Docker or Nebius checkouts. Record assertion identities, logs, durations, test hash, and runtime/image/dependency fingerprints. A stable base pass and head assertion failure support a regression finding; the expected behavior still needs human review.
+2. **Repair:** after a reproduced regression, prepare a fresh head checkout and confirm the failure again. The configured Nebius model proposes one repair affecting at most three supplied, existing application source files. Hash guards, file-size limits, and path checks reject stale files, tests, configuration, symlinks, and hard links. No shell commands or arbitrary host writes are accepted as repair actions.
+3. **Recheck:** keep the test unchanged, run it twice against patched source, then run build, typecheck, and existing tests. Before/after check results remain visible. A missing or failing required check prevents a validated repair label. Review and download the proposal; nothing is committed, merged, or posted to GitHub.
+
+Live reproduction supports Vitest 3.2+ or 4, a supported root lockfile, matching dependency environments, and explicitly allowlisted **Docker or Nebius** execution. Native execution is excluded from this workflow. Changed assertions, skipped tests, runtime exceptions, unstable repeats, changed dependencies/images, and setup failures are inconclusive. The comparison uses the report's recorded base/head tips; it does not isolate every intervening change or establish complete coverage, causation, or merge safety.
+
+The **demo walkthrough** actually executes trusted original/defective/repaired Node fixture variants. It uses a curated repair, no model inference, no GitHub checkout, and no repository build/type/test scripts. Synthetic report SHAs are illustrative. Demo results are labeled separately from live repository results.
+
+Run the five curated evaluation cases:
+
+```bash
+npm run evaluate:regressions
+```
+
+Three intentionally introduced regressions and two healthy changes exercise repeated comparison and fixture repair. Output reports measured elapsed time and expected/observed classifications. This validates the curated workflow; it is not an AI accuracy benchmark or evidence of success on arbitrary repositories.
+
+The JSON reproduction bundle includes named files: exact evidence, test source, isolated Vitest configuration for live runs, a README with commands, fixture variants for demo runs, and any proposed patch. Download the README/test/patch individually from the same page. Latest results are stored under `.data/regressions/`, separate from immutable analysis and reviewer notes. Older results for a finding are replaced only after a successful completed run; cancelled work preserves the previous result. Sidecar files are not automatically purged with the report retention policy.
+
+Nebius inference and remote sandbox execution may be billable. A configured inference key does not enable repository execution; use the existing provider settings and allowlist in `.env.example`. Docker is the local option on Windows with Docker Desktop Linux containers. Remote sandbox credentials are separate from the inference key.
+
+For the prepared Windows Docker path, follow [Docker setup](docs/DOCKER-WINDOWS.md). After installing/opening Docker Desktop, run `npm run docker:setup -- --repo OWNER/REPO` to check the engine, prepare the official image, and configure one exact repository while preserving your inference credentials. `npm run docker:check` checks readiness without changing configuration. A [three-minute demo outline](docs/DEMO.md) is included for the submission.
 
 ## Problem and solution
 
@@ -62,20 +100,25 @@ The demo PR is synthetic: `acme/platform #127`, 18 files and 1,437 changed lines
 
 ## What works
 
-| Capability                                                                                     | Status / requirements                                                               |
-| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Responsive dashboard, progress stream, report, filters, expandable evidence/diffs, JSON export | Implemented                                                                         |
-| Demo investigation with actual fixture assertions                                              | Works without credentials, including Windows                                        |
-| Public GitHub metadata and paginated changed files                                             | Implemented using Octokit; optional `GITHUB_TOKEN` raises API limits                |
-| Diff parsing, categorization, configurable risk engine, static checks                          | Implemented; no AI dependency                                                       |
-| Nebius structured inference and targeted Vitest generation                                     | Implemented; requires `NEBIUS_API_KEY` and a valid `NEBIUS_MODEL`                   |
-| AI category refinement and exact NVIDIA model catalog validation                               | Implemented with Zod validation and conservative fallback                           |
-| Docker execution of explicitly trusted repositories                                            | Implemented for Linux containers, including Windows Docker Desktop; Docker required |
-| Native development execution                                                                   | Explicit opt-in for trusted Linux/macOS/WSL repositories                            |
-| Workspace access protection                                                                    | Public origin validation, owner authentication, CSP, bounded request bodies         |
-| Nebius ConTree sandbox                                                                         | REST adapter implemented; requires sandbox access, IAM token, project and image UUID |
-| Local report history                                                                           | Implemented; filesystem persistence, newest 100 reports                             |
-| Human review checklist and Markdown export                                                     | Saved decisions/notes per report and commit, decision filters, copy/download summary |
+| Capability                                                                                     | Status / requirements                                                                                                                      |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Responsive dashboard, progress stream, report, filters, expandable evidence/diffs, JSON export | Implemented                                                                                                                                |
+| Demo investigation with actual fixture assertions                                              | Works without credentials, including Windows                                                                                               |
+| Public GitHub metadata and paginated changed files                                             | Implemented using Octokit; optional `GITHUB_TOKEN` raises API limits                                                                       |
+| Diff parsing, categorization, configurable risk engine, static checks                          | Implemented; no AI dependency                                                                                                              |
+| Nebius structured inference and targeted Vitest generation                                     | Implemented; requires `NEBIUS_API_KEY` and a valid `NEBIUS_MODEL`                                                                          |
+| AI category refinement and exact NVIDIA model catalog validation                               | Implemented with Zod validation and conservative fallback                                                                                  |
+| Docker execution of explicitly trusted repositories                                            | Implemented for Linux containers, including Windows Docker Desktop; Docker required                                                        |
+| Native development execution                                                                   | Explicit opt-in for trusted Linux/macOS/WSL repositories                                                                                   |
+| Workspace access protection                                                                    | Public origin validation, owner authentication, CSP, bounded request bodies                                                                |
+| Nebius ConTree sandbox                                                                         | REST adapter implemented; requires sandbox access, IAM token, project and image UUID                                                       |
+| Local report history                                                                           | Implemented; filesystem persistence, newest 100 reports                                                                                    |
+| Human review checklist and Markdown export                                                     | Saved decisions/notes per report and commit, decision filters, copy/download summary                                                       |
+| Follow-up analysis and saved-run comparison                                                    | Rerun a PR; compare findings, evidence results, risk areas, and commit scope across retained runs                                          |
+| Searchable report history                                                                      | Search by title, repository, PR number, or commit; filter by mode and high-priority findings                                               |
+| Verification-gap explorer                                                                      | Search/filter changed files by risk and linked evidence; inspect scoped execution, static checks, skipped checks, and fixture-only results |
+| Individual finding handoff                                                                     | Copy/download a focused Markdown draft with pinned commits, saved decision, evidence, and a follow-up checklist                            |
+| Downloadable test proposals                                                                    | Download the recorded proposed test source for inspection; no test is generated or executed by downloading                                 |
 
 Live credentials were not supplied during development. Adapter validation and failures are tested with mocked HTTP responses; a live inference request still requires account validation.
 
@@ -209,33 +252,55 @@ Decisions are tied to the exact report and head commit; reviewing or dismissing 
 
 This is a shared checklist for the workspace owner. Review revision snapshots live in `.data/reviews/` on the same persistent filesystem as reports; earlier notes remain in those snapshots after edits. Report retention does not remove review snapshots. The sample report at `/report/demo` has its own stable checklist. Unsaved drafts exist only in the browser page, so save them before navigating away.
 
+## Follow-up review and comparisons
+
+On a saved report, click **Analyze again** to return to the PR form with its canonical GitHub URL filled in. Starting the form analyzes the latest PR revision using the configured providers and saves a separate report. Simply opening the prefilled form does not contact GitHub or run inference. Demo reports offer **Run demo again** instead.
+
+Click **Compare runs** on the later saved report to compare it with an earlier analysis of the same repository, PR number, and mode. The latest eligible baseline is selected by default; choose another earlier run with the selector. Both runs show their full head/base commits, provider, date, priority-line scope, and coverage limitations. Finding groups distinguish **Newly observed**, **Observed in both runs**, and **Not observed in the later run**. Check results retain their recorded status and provenance. Risk-map changes show the recorded priority scores and file counts.
+
+Matching requires the same title (ignoring case and whitespace), category, and affected file paths/diff sides. Line-number shifts and regenerated finding IDs do not break a match. Reworded or moved findings remain separate, and ambiguous duplicates are left unmatched. This compares saved observations; it does not execute a base/head regression test, prove that an absent finding was fixed, or transfer reviewer decisions. Differences in providers, base commits, repeated head commits, and partial coverage are explicitly identified. Comparisons require no additional credentials and use reports retained in local history (newest 100).
+
+In **Analysis history**, search by repository, title, PR number, or commit prefix and combine the mode/priority filters. Filters are encoded in the URL, survive refresh and opening a report, and support browser Back/Forward. **Clear filters** restores the full list. History controls receive summary metadata rather than full diffs or execution output.
+
+Analysis and reproduction progress use the same bounded UTF-8/NDJSON decoder and validated message schemas. A final message without a trailing newline is accepted. Silent streams time out, cancellation releases the reader, malformed gateway errors show actionable text, and rate limits retain the server's retry delay. If completion cannot be confirmed, reload the saved result before starting another potentially billable run.
+
+## Verification gaps and finding handoff
+
+Open **Evidence gaps** in a saved report to inspect changed files and their evidence links. Use **Show high-risk gaps**, file-path search, and the risk/evidence filters to focus the list. Expand a file to inspect recorded status/provenance, related findings, and diff limitations. **Inspect file diff** opens the matching diff; **Review related findings** clears finding filters and returns to the findings section. Longer lists load ten rows at a time.
+
+An execution gap means no explicitly file-linked repository execution is recorded. Failed and warning executions remain labeled for review, and static PASS, NOT_RUN, and demo-fixture results never count as repository execution. Checks without paths are shown separately. File associations are not line coverage or proof that every behavior in a file was exercised; a repository-wide build pass does not mark every file verified. Missing patches and omitted file scope remain visible.
+
+Within a finding, expand **Finding handoff & test proposal**. **Copy finding draft** and **Download finding draft** produce a focused Markdown draft containing the exact commits, affected code, evidence, saved review decision/note, recommendation, and follow-up checklist. Save pending edits to that finding before exporting. Drafts escape untrusted Markdown/HTML, exclude raw logs and generated source, and retain demo/coverage limitations. They are never posted to GitHub automatically.
+
+**Download test proposal** is available when the report contains a nonempty generated test. The download preserves the recorded source, uses a bounded test-source filename, and does not run anything. Inspect imports, fixtures, assertions, and framework setup before execution. Demo templates remain clearly labeled. These tools use existing reports and require no additional credentials.
+
 ## Environment variables
 
-| Variable                     | Default / purpose                                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `DEMO_MODE`                  | `.env.example`: `true`. Unset: demo when no Nebius key exists. Explicit `false` enables real GitHub analysis. |
-| `GITHUB_TOKEN`               | Optional server-only public GitHub token; never sent to the client or cloned repository.                      |
-| `NEBIUS_API_KEY`             | Server-only inference credential.                                                                             |
-| `NEBIUS_BASE_URL`            | `https://api.tokenfactory.nebius.com/v1`; clean HTTPS URL required.                                           |
-| `NEBIUS_MODEL`               | Required for model inference; select an eligible NVIDIA model from your catalog.                              |
-| `NEBIUS_REQUIRE_NVIDIA`      | `true`; require an exact available `nvidia/` model. Explicit `false` permits another selected vendor.         |
-| `MAX_INVESTIGATIONS`         | `5`, bounded to 1–10; invalid values fall back to 5.                                                          |
-| `SANDBOX_PROVIDER`           | `disabled`, `docker`, `native`, or `nebius`. Legacy local enablement without this setting selects native.      |
-| `ENABLE_LOCAL_SANDBOX`       | `false`; explicit execution switch, always requires a trusted repository allowlist.                           |
-| `LOCAL_SANDBOX_REPOSITORIES` | Comma-separated public `OWNER/REPO` names explicitly trusted for local execution.                             |
-| `SANDBOX_DOCKER_IMAGE`       | `node:22-bookworm`; must be present locally, resolved to its immutable image ID before execution.             |
-| `ENABLE_NEBIUS_SANDBOX`      | `false`; explicit remote execution switch, requires its own repository allowlist.                             |
-| `NEBIUS_SANDBOX_REPOSITORIES`| Comma-separated public `OWNER/REPO` names permitted for remote execution.                                     |
-| `NEBIUS_SANDBOX_BASE_URL`    | `https://api.tokenfactory.nebius.com/sandboxes`; server-configured clean HTTPS endpoint.                       |
-| `NEBIUS_SANDBOX_TOKEN`       | Server-only Nebius IAM bearer token with sandbox access; separate from inference configuration.              |
-| `NEBIUS_SANDBOX_PROJECT_ID`  | Nebius project context, sent in the sandbox API's `Project` header.                                         |
-| `NEBIUS_SANDBOX_IMAGE`       | Immutable UUID of an already imported, trusted Node 22+ image containing git and npm/Corepack.               |
-| `ENABLE_PRODUCTION_SANDBOX`  | `false`; additional production opt-in for Docker or Nebius. Native execution always refuses production.      |
-| `APP_ORIGIN`                 | Unset for loopback; exact HTTPS origin required for public hosting. Forwarded headers do not grant trust.     |
-| `APP_AUTH_USERNAME`          | Owner username for HTTP Basic authentication. Required for public hosting; optional locally.                  |
-| `APP_AUTH_PASSWORD`          | Owner password, at least 24 characters. Required with a username; server-only.                                |
-| `RISK_WEIGHTS_JSON`          | Optional validated numeric weight overrides.                                                                  |
-| `DATABASE_URL`               | Reserved for future persistence; unused and not required.                                                     |
+| Variable                      | Default / purpose                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `DEMO_MODE`                   | `.env.example`: `true`. Unset: demo when no Nebius key exists. Explicit `false` enables real GitHub analysis. |
+| `GITHUB_TOKEN`                | Optional server-only public GitHub token; never sent to the client or cloned repository.                      |
+| `NEBIUS_API_KEY`              | Server-only inference credential.                                                                             |
+| `NEBIUS_BASE_URL`             | `https://api.tokenfactory.nebius.com/v1`; clean HTTPS URL required.                                           |
+| `NEBIUS_MODEL`                | Required for model inference; select an eligible NVIDIA model from your catalog.                              |
+| `NEBIUS_REQUIRE_NVIDIA`       | `true`; require an exact available `nvidia/` model. Explicit `false` permits another selected vendor.         |
+| `MAX_INVESTIGATIONS`          | `5`, bounded to 1–10; invalid values fall back to 5.                                                          |
+| `SANDBOX_PROVIDER`            | `disabled`, `docker`, `native`, or `nebius`. Legacy local enablement without this setting selects native.     |
+| `ENABLE_LOCAL_SANDBOX`        | `false`; explicit execution switch, always requires a trusted repository allowlist.                           |
+| `LOCAL_SANDBOX_REPOSITORIES`  | Comma-separated public `OWNER/REPO` names explicitly trusted for local execution.                             |
+| `SANDBOX_DOCKER_IMAGE`        | `node:22-bookworm`; must be present locally, resolved to its immutable image ID before execution.             |
+| `ENABLE_NEBIUS_SANDBOX`       | `false`; explicit remote execution switch, requires its own repository allowlist.                             |
+| `NEBIUS_SANDBOX_REPOSITORIES` | Comma-separated public `OWNER/REPO` names permitted for remote execution.                                     |
+| `NEBIUS_SANDBOX_BASE_URL`     | `https://api.tokenfactory.nebius.com/sandboxes`; server-configured clean HTTPS endpoint.                      |
+| `NEBIUS_SANDBOX_TOKEN`        | Server-only Nebius IAM bearer token with sandbox access; separate from inference configuration.               |
+| `NEBIUS_SANDBOX_PROJECT_ID`   | Nebius project context, sent in the sandbox API's `Project` header.                                           |
+| `NEBIUS_SANDBOX_IMAGE`        | Immutable UUID of an already imported, trusted Node 22+ image containing git and npm/Corepack.                |
+| `ENABLE_PRODUCTION_SANDBOX`   | `false`; additional production opt-in for Docker or Nebius. Native execution always refuses production.       |
+| `APP_ORIGIN`                  | Unset for loopback; exact HTTPS origin required for public hosting. Forwarded headers do not grant trust.     |
+| `APP_AUTH_USERNAME`           | Owner username for HTTP Basic authentication. Required for public hosting; optional locally.                  |
+| `APP_AUTH_PASSWORD`           | Owner password, at least 24 characters. Required with a username; server-only.                                |
+| `RISK_WEIGHTS_JSON`           | Optional validated numeric weight overrides.                                                                  |
+| `DATABASE_URL`                | Reserved for future persistence; unused and not required.                                                     |
 
 ## Security and execution limits
 

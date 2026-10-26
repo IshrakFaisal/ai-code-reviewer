@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { ArrowUpRight, GitPullRequest } from "lucide-react";
-import type { AnalysisReport } from "@/lib/types";
+import type { ReportSummary } from "@/lib/reports/history";
 import { cn } from "@/lib/utils";
 
 /** Readable on mobile without hiding the repository or analysis mode. */
-export function ReportList({ reports }: { reports: AnalysisReport[] }) {
+export function ReportList({ reports }: { reports: ReportSummary[] }) {
   return (
     <div
       className="report-list"
@@ -20,9 +20,7 @@ export function ReportList({ reports }: { reports: AnalysisReport[] }) {
         </span>
       </div>
       {reports.map((report) => {
-        const high = report.findings.filter(
-          (finding) => finding.severity === "HIGH",
-        ).length;
+        const high = report.highFindings;
         return (
           <div key={report.id} className="report-list-row" role="row">
             <div className="report-list-pr" role="cell">

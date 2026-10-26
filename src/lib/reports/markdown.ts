@@ -81,6 +81,14 @@ function evidenceLine(evidence: Evidence): string {
   return `- ${text(evidence.type)}: ${code(evidence.status)} / ${code(evidence.provenance)} — ${text(evidence.description)}`;
 }
 
+export {
+  text as markdownText,
+  code as markdownCode,
+  fileReference as markdownFileReference,
+  evidenceLine as markdownEvidenceLine,
+  pullRequestReference as markdownPullRequestReference,
+};
+
 /** A portable review draft; this never changes evidence or posts to GitHub. */
 export function reviewMarkdown(
   report: AnalysisReport,

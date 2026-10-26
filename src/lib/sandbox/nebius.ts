@@ -4,6 +4,7 @@ import type { CommandId, CommandResult, SandboxProvider } from "./provider";
 import { sandboxAllowed, selectedSandboxProvider } from "./factory";
 import { ContreeClient, contreeConfiguration } from "./contree-client";
 import { sandboxFileProgram } from "./file-program";
+import { validateRepairPath } from "@/lib/regression/repair";
 import {
   commandPlan,
   generatedPlan,
@@ -27,6 +28,7 @@ export class NebiusSandboxProvider implements SandboxProvider {
   private readonly yarnRcFilename = `.change-verifier-${randomUUID()}.yarnrc.yml`;
   private readonly client: RemoteClient;
   private image: string;
+  private readonly originalImage: string;
   private created = false;
   private destroyed = false;
   private installed = false;
@@ -42,6 +44,7 @@ export class NebiusSandboxProvider implements SandboxProvider {
     this.assertAllowed();
     const config = contreeConfiguration();
     this.image = config.image;
+    this.originalImage = config.image;
     this.client = client ?? new ContreeClient(config, signal);
   }
 
@@ -249,6 +252,38 @@ export class NebiusSandboxProvider implements SandboxProvider {
   async writeFile(relative: string, content: string) {
     validateRelativePath(relative, true);
     await this.writeArtifact(relative, content);
+  }
+
+  async runtimeIdentity() {
+    const result = await this.exec(
+      "node",
+      ["-p", "JSON.stringify([process.version,process.platform,process.arch])"],
+      { disposable: true },
+    );
+    if (result.exitCode !== 0 || result.timedOut)
+      throw new Error("Runtime identity is unavailable.");
+    return JSON.stringify([this.originalImage, JSON.parse(result.output)]);
+  }
+
+  async replaceSource(
+    relative: string,
+    expectedSha256: string,
+    content: string,
+  ) {
+    if (!this.installed)
+      throw new Error(
+        "Source repairs require completed dependency installation.",
+      );
+    validateRepairPath(relative);
+    const result = await this.exec(
+      "node",
+      ["-e", this.fileProgram, "replace", relative],
+      { input: JSON.stringify({ expectedSha256, content }) },
+    );
+    if (result.exitCode !== 0 || result.timedOut)
+      throw new Error(
+        "Source replacement failed its path, size, or original-hash guard.",
+      );
   }
 
   async installDependencies() {

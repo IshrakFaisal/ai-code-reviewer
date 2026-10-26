@@ -13,6 +13,8 @@ import {
 import { STAGES, type AgentEvent } from "@/lib/types";
 import { completedStageCount } from "@/lib/agent/progress";
 import { Button } from "@/components/ui/button";
+import { readJsonLines, responseError, streamError } from "@/lib/streaming";
+import { analysisMessageSchema } from "@/lib/agent/messages";
 export function Progress({
   input,
   prNumber,
@@ -30,43 +32,37 @@ export function Progress({
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
+    const signal = AbortSignal.any([
+      controller.signal,
+      AbortSignal.timeout(310000),
+    ]);
     async function run() {
       try {
         const response = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input, prNumber, demo }),
-          signal: controller.signal,
+          signal,
         });
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Analysis could not start.");
+          throw await responseError(response, "Analysis could not start.");
         }
-        const reader = response.body?.getReader();
-        if (!reader)
-          throw new Error("Streaming is unavailable. Please try again.");
-        const decoder = new TextDecoder();
-        let buffer = "",
-          complete = false;
-        while (true) {
-          const { value, done } = await reader.read();
-          buffer += done
-            ? decoder.decode()
-            : decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line) continue;
-            const message = JSON.parse(line);
-            if (message.type === "progress")
-              setEvents((old) => [...old, message.event]);
-            if (message.type === "error") throw new Error(message.error);
-            if (message.type === "complete") {
-              complete = true;
-              router.replace(`/report/${message.id}`);
-            }
+        let complete = false;
+        for await (const raw of readJsonLines(response, { signal })) {
+          const parsed = analysisMessageSchema.safeParse(raw);
+          if (!parsed.success)
+            throw new Error(
+              "The server sent an unexpected analysis update. Please retry.",
+            );
+          const message = parsed.data;
+          if (message.type === "progress")
+            setEvents((old) => [...old, message.event]);
+          if (message.type === "error") throw new Error(message.error);
+          if (message.type === "complete") {
+            complete = true;
+            router.replace(`/report/${message.id}`);
+            break;
           }
-          if (done) break;
         }
         if (!complete)
           throw new Error(
@@ -74,7 +70,9 @@ export function Progress({
           );
       } catch (e) {
         if (!controller.signal.aborted)
-          setError(e instanceof Error ? e.message : "Analysis failed.");
+          setError(streamError(e, "Analysis failed."));
+      } finally {
+        controller.abort();
       }
     }
     void run();
@@ -189,7 +187,7 @@ export function Progress({
         <div className="terminal-output">
           {events.map((e, i) => (
             <p key={i}>
-              <span>{new Date(e.at).toLocaleTimeString()}</span>{" "}
+              <span>{new Date(e.at).toISOString().slice(11, 19)} UTC</span>{" "}
               {e.phase && `[${e.phase}] `}
               {e.detail}
             </p>

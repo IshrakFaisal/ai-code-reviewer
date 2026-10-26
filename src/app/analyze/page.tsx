@@ -8,7 +8,7 @@ export default async function AnalyzePage({
   const p = await searchParams;
   return (
     <Progress
-      key={`${p.input}-${p.demo}`}
+      key={`${p.input}-${p.pr}-${p.demo}`}
       input={typeof p.input === "string" ? p.input : "acme/platform"}
       prNumber={typeof p.pr === "string" ? Number(p.pr) : undefined}
       demo={p.demo === "true"}

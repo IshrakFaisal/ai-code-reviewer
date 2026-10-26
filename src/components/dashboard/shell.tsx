@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowUpRight,
+  BookOpen,
   ChevronRight,
   FileClock,
   FlaskConical,
@@ -11,6 +12,7 @@ import {
   LayoutGrid,
   Layers3,
   ScanLine,
+  Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -22,13 +24,24 @@ export function Shell({
   demo: boolean;
 }) {
   const pathname = usePathname();
-  const label = pathname.startsWith("/report")
-    ? "Verification report"
-    : pathname === "/history"
-      ? "Analysis history"
-      : pathname === "/analyze"
-        ? "Investigation"
-        : "Overview";
+  const label =
+    pathname === "/workspace"
+      ? "Workspace overview"
+      : pathname === "/settings"
+        ? "Settings & integrations"
+        : pathname === "/how-it-works"
+          ? "How it works"
+          : pathname.startsWith("/report")
+            ? pathname.includes("/reproduce/")
+              ? "Reproduce & repair"
+              : pathname.endsWith("/compare")
+                ? "Analysis comparison"
+                : "Verification report"
+            : pathname === "/history"
+              ? "Analysis history"
+              : pathname === "/analyze"
+                ? "Investigation"
+                : "Overview";
   const navigation = [
     {
       href: "/",
@@ -49,6 +62,23 @@ export function Shell({
       active: pathname === "/history",
     },
   ];
+  const mobileNavigation = [
+    ...navigation.map((item) => ({
+      ...item,
+      label:
+        item.label === "Analysis history"
+          ? "History"
+          : item.label === "New analysis"
+            ? "Analyze"
+            : item.label,
+    })),
+    {
+      href: "/how-it-works",
+      label: "Guide",
+      icon: BookOpen,
+      active: pathname === "/how-it-works",
+    },
+  ];
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -60,12 +90,20 @@ export function Shell({
             Change Verifier<small>AI verification workspace</small>
           </span>
         </Link>
-        <div className="workspace">
-          <span className="workspace-avatar">W</span>
-          <span>
-            My workspace<small>Local environment</small>
+        <Link
+          href="/workspace"
+          className={cn("workspace", pathname === "/workspace" && "active")}
+          aria-current={pathname === "/workspace" ? "page" : undefined}
+          title="Open local workspace"
+        >
+          <span className="workspace-avatar">
+            <Layers3 size={17} />
           </span>
-        </div>
+          <span>
+            Local workspace<small>Reports & activity</small>
+          </span>
+          <ChevronRight size={14} className="workspace-chevron" />
+        </Link>
         <div className="nav-label">Workspace</div>
         <nav aria-label="Main navigation">
           {navigation.map(({ href, label: name, icon: Icon, active }) => (
@@ -92,8 +130,13 @@ export function Shell({
             <FlaskConical size={18} strokeWidth={1.7} />
             <span>Sample report</span>
           </Link>
-          <Link className="nav-item" href="/#workflow" title="How it works">
-            <Layers3 size={18} strokeWidth={1.7} />
+          <Link
+            className={cn("nav-item", pathname === "/how-it-works" && "active")}
+            href="/how-it-works"
+            title="How it works"
+            aria-current={pathname === "/how-it-works" ? "page" : undefined}
+          >
+            <BookOpen size={18} strokeWidth={1.7} />
             <span>How it works</span>
           </Link>
           <a
@@ -108,26 +151,26 @@ export function Shell({
           </a>
         </nav>
         <div className="sidebar-bottom">
-          <div className="workspace-note">
-            <strong>Evidence, with context.</strong>
-            <p>
-              Inspect what was checked.
-              <br />
-              Decide what happens next.
-            </p>
-          </div>
           <div className="powered">
             Powered by{" "}
             <span>
               Nebius <i>×</i> NVIDIA
             </span>
           </div>
-          <div className="profile">
-            <span className="avatar">D</span>
-            <span>
-              Developer<small>Local workspace · v0.1</small>
+          <Link
+            className={cn("profile", pathname === "/settings" && "active")}
+            href="/settings"
+            aria-current={pathname === "/settings" ? "page" : undefined}
+            title="Settings & integrations"
+          >
+            <span className="settings-icon">
+              <Settings2 size={18} />
             </span>
-          </div>
+            <span>
+              Settings & integrations<small>Connection status & setup</small>
+            </span>
+            <ChevronRight size={14} className="workspace-chevron" />
+          </Link>
         </div>
       </aside>
       <div className="main-column">
@@ -136,7 +179,7 @@ export function Shell({
             <Link href="/" className="mobile-brand" aria-label="Workspace home">
               <ScanLine size={20} />
             </Link>
-            <Link href="/" className="topbar-muted">
+            <Link href="/workspace" className="topbar-muted">
               Workspace
             </Link>
             <ChevronRight size={13} />
@@ -147,13 +190,21 @@ export function Shell({
               {demo ? "Demo mode" : "Live mode"}
             </span>
             <span className="topbar-divider" />
-            <span className="avatar small" aria-label="Developer workspace">
-              D
-            </span>
+            <Link
+              href="/settings"
+              className={cn(
+                "topbar-settings",
+                pathname === "/settings" && "active",
+              )}
+              aria-label="Open settings and integrations"
+              title="Settings & integrations"
+            >
+              <Settings2 size={17} />
+            </Link>
           </div>
         </header>
         <nav className="mobile-nav" aria-label="Mobile navigation">
-          {navigation.map(({ href, label: name, icon: Icon, active }) => (
+          {mobileNavigation.map(({ href, label: name, icon: Icon, active }) => (
             <Link
               key={href}
               href={href}
@@ -168,7 +219,11 @@ export function Shell({
         <main id="main-content">{children}</main>
         <footer className="app-footer">
           <span>AI Change Verifier</span>
-          <span>Evidence informs. You decide.</span>
+          <nav className="footer-links" aria-label="Workspace resources">
+            <Link href="/workspace">Workspace</Link>
+            <Link href="/how-it-works">How it works</Link>
+            <Link href="/settings">Settings</Link>
+          </nav>
         </footer>
       </div>
     </div>

@@ -37,6 +37,9 @@ import {
 } from "./review-checklist";
 import { reviewStatuses, type ReviewStatus } from "@/lib/reports/review";
 import { ReportNavigation } from "./report-navigation";
+import { reanalysisHref } from "@/lib/reports/history";
+import { VerificationGaps } from "./verification-gaps";
+import { FindingHandoff } from "./finding-handoff";
 
 function StatusIcon({ status }: { status: Evidence["status"] }) {
   return status === "PASS" ? (
@@ -199,6 +202,26 @@ function FindingCard({
             </div>
           </details>
         )}
+        {f.generatedTest &&
+          (report.mode === "LIVE" || f.id === "finding-1") && (
+            <div className="finding-reproduce">
+              <div>
+                <strong>Investigate the behavioral difference</strong>
+                <p>
+                  {report.mode === "DEMO"
+                    ? "Compare the bundled base and head fixtures, then recheck a curated repair."
+                    : "Run this test at both commits and investigate a bounded repair."}
+                </p>
+              </div>
+              <Link
+                className="text-link"
+                href={`/report/${report.id}/reproduce/${f.id}`}
+                prefetch={false}
+              >
+                Reproduce & repair <ArrowRight size={14} />
+              </Link>
+            </div>
+          )}
         <div className="recommendation">
           <Target size={17} />
           <div>
@@ -207,6 +230,7 @@ function FindingCard({
           </div>
         </div>
         <FindingReview finding={f} checklist={checklist} />
+        <FindingHandoff report={report} finding={f} checklist={checklist} />
       </div>
     </article>
   );
@@ -330,6 +354,28 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           </span>
         </div>
       )}
+      <div className="report-followup" aria-label="Follow-up review">
+        <div>
+          <strong>Follow up on this change</strong>
+          <p>
+            Run a fresh investigation or compare observations from earlier saved
+            runs.
+          </p>
+        </div>
+        <div className="followup-actions">
+          {report.id !== "demo" && (
+            <Button asChild variant="outline" size="small">
+              <Link href={`/report/${report.id}/compare`}>Compare runs</Link>
+            </Button>
+          )}
+          <Button asChild variant="outline" size="small">
+            <Link href={reanalysisHref(report)}>
+              {report.mode === "DEMO" ? "Run demo again" : "Analyze again"}
+              <ArrowRight size={14} />
+            </Link>
+          </Button>
+        </div>
+      </div>
       <ReportNavigation findings={findings.length} />
       <section id="summary">
         <div className="section-heading compact">
@@ -587,6 +633,13 @@ export function ReportView({ report }: { report: AnalysisReport }) {
             ))}
         </div>
       </section>
+      <VerificationGaps
+        report={report}
+        onShowFindings={() => {
+          setFilter("ALL");
+          setDecisionFilter("ALL");
+        }}
+      />
       <section>
         <div className="section-heading">
           <div>
@@ -630,7 +683,11 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           {[...pr.files]
             .sort((a, b) => b.risk.score - a.risk.score)
             .map((f) => (
-              <details key={f.path} className="file-item">
+              <details
+                key={f.path}
+                id={`changed-file-${pr.files.indexOf(f)}`}
+                className="file-item"
+              >
                 <summary>
                   <ChevronRight size={15} />
                   <FileCode2 size={16} />

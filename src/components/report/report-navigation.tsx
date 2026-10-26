@@ -8,6 +8,7 @@ const sections = [
   ["human-review", "Your review"],
   ["findings", "Findings"],
   ["verification", "Verification"],
+  ["evidence-gaps", "Evidence gaps"],
   ["files", "Changed files"],
   ["agent-log", "Agent log"],
 ] as const;

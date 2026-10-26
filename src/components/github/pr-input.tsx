@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -11,20 +11,27 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { parseGitHubInput } from "@/lib/github/input";
-export function PRInput({ demo }: { demo: boolean }) {
+export function PRInput({
+  demo,
+  initialInput = "",
+}: {
+  demo: boolean;
+  initialInput?: string;
+}) {
   const router = useRouter();
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialInput);
   const [number, setNumber] = useState("");
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  const [pending, startTransition] = useTransition();
   function start(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     try {
       parseGitHubInput(input, Number(number));
-      setPending(true);
-      router.push(
-        `/analyze?input=${encodeURIComponent(input.trim())}${number ? `&pr=${number}` : ""}`,
+      startTransition(() =>
+        router.push(
+          `/analyze?input=${encodeURIComponent(input.trim())}${number ? `&pr=${number}` : ""}`,
+        ),
       );
     } catch (e) {
       setError((e as Error).message);
@@ -36,11 +43,15 @@ export function PRInput({ demo }: { demo: boolean }) {
         <Github size={19} />
         <div>
           <h2>Start a new analysis</h2>
-          <p>Paste a public pull request URL to investigate its changes.</p>
+          <p>
+            {initialInput
+              ? "Review the URL below and start a fresh investigation of the latest PR revision."
+              : "Paste a public pull request URL to investigate its changes."}
+          </p>
         </div>
         <span>Public repositories</span>
       </div>
-      <form onSubmit={start}>
+      <form onSubmit={start} aria-busy={pending}>
         <label htmlFor="pr-url">GitHub pull request</label>
         <div className="input-row">
           <div className="input-wrap">
@@ -55,6 +66,7 @@ export function PRInput({ demo }: { demo: boolean }) {
               placeholder="https://github.com/owner/repo/pull/123"
               autoComplete="off"
               maxLength={300}
+              disabled={pending}
               required
               aria-invalid={!!error}
               aria-describedby={error ? "input-error" : "input-help"}
@@ -74,9 +86,13 @@ export function PRInput({ demo }: { demo: boolean }) {
               min="1"
               max="2147483647"
               value={number}
-              onChange={(e) => setNumber(e.target.value)}
+              onChange={(e) => {
+                setNumber(e.target.value);
+                setError("");
+              }}
               placeholder="123"
               required
+              disabled={pending}
             />
           </div>
         )}
@@ -98,7 +114,10 @@ export function PRInput({ demo }: { demo: boolean }) {
         <Button
           variant="ghost"
           size="small"
-          onClick={() => router.push("/analyze?demo=true")}
+          disabled={pending}
+          onClick={() =>
+            startTransition(() => router.push("/analyze?demo=true"))
+          }
         >
           <Play size={13} />
           Run the demo
