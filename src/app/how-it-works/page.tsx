@@ -116,8 +116,9 @@ export default function HowItWorksPage() {
               </li>
               <li>
                 <strong>Review the saved report.</strong> Start with the
-                summary, then inspect findings, evidence, file diffs, and
-                remaining verification gaps. Save decisions and notes against
+                workbench to connect changed code with findings and evidence.
+                Use Next steps for a prioritized review plan, then inspect the
+                summary and verification gaps. Save decisions and notes against
                 the analyzed commit.
               </li>
             </ol>
@@ -465,6 +466,15 @@ export default function HowItWorksPage() {
             <h2>Review and follow up</h2>
             <ol className="guide-steps">
               <li>
+                <strong>Check revision freshness.</strong> On a live report,
+                choose Check GitHub revision to read current public PR metadata.
+                A changed base or head commit requires a fresh analysis for that
+                revision. Open, closed, merged, and draft states are shown as an
+                as-of snapshot. Matching snapshots expire after five minutes;
+                the app does not continuously monitor the PR. Synthetic demo
+                reports cannot be checked against GitHub.
+              </li>
+              <li>
                 <strong>Inspect findings and changed code.</strong> Read the
                 behavioral change, impact, file references, recommendation, and
                 evidence. Expand generated tests and outputs when available.
@@ -492,6 +502,22 @@ export default function HowItWorksPage() {
                 commits, provenance, and limitations are retained. Test-proposal
                 downloads preserve recorded source; inspect their setup before
                 running them.
+              </li>
+              <li>
+                <strong>Use your next review steps.</strong> The deterministic
+                action plan prioritizes changed revisions, saved needs-fix
+                decisions, open findings, failed or inconclusive execution,
+                missing repository checks, and high-risk evidence gaps. Review
+                focus filters in the workbench narrow files by risk, findings,
+                execution gaps, or saved Needs review / Needs fix decisions;
+                arrow keys move through the visible file list. Filter next steps
+                by category and open each failed or inconclusive check directly
+                to inspect its output. Download action plan includes all steps
+                regardless of the selected filter, pinned revisions, the
+                session’s revision snapshot, next steps, and saved review notes.
+                Save draft decisions before exporting. Completing these steps is
+                not merge approval, and reproduction/repair results remain
+                separate from the original report.
               </li>
             </ol>
             <p>

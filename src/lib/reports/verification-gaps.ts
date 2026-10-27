@@ -1,4 +1,4 @@
-import type { AnalysisReport, RiskLevel } from "@/lib/types";
+import type { AnalysisReport, Evidence, RiskLevel } from "@/lib/types";
 
 export type FileEvidenceState =
   | "EXECUTION_FAILED"
@@ -18,25 +18,35 @@ export const fileEvidenceLabels: Record<FileEvidenceState, string> = {
   NO_EVIDENCE: "No file-linked evidence",
 };
 
-/** A path association is not proof of test coverage or code execution. */
-export function verificationGaps(report: AnalysisReport) {
+export function evidenceIdentity(record: Evidence) {
+  return JSON.stringify([
+    record.id,
+    record.type,
+    record.status,
+    record.provenance,
+    record.description,
+    record.output ?? "",
+    record.durationMs ?? null,
+    [...new Set(record.filePaths ?? [])].sort(),
+  ]);
+}
+
+export function reportEvidence(report: AnalysisReport) {
   const seen = new Set<string>();
-  const evidence = [
+  return [
     ...report.checks,
     ...report.findings.flatMap((finding) => finding.evidence),
   ].filter((record) => {
-    const identity = JSON.stringify([
-      record.id,
-      record.type,
-      record.status,
-      record.provenance,
-      record.description,
-      [...new Set(record.filePaths ?? [])].sort(),
-    ]);
+    const identity = evidenceIdentity(record);
     if (seen.has(identity)) return false;
     seen.add(identity);
     return true;
   });
+}
+
+/** A path association is not proof of test coverage or code execution. */
+export function verificationGaps(report: AnalysisReport) {
+  const evidence = reportEvidence(report);
   const rows = report.pr.files
     .map((file, index) => {
       const linked = evidence.filter((record) =>

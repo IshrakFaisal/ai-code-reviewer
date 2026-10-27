@@ -85,7 +85,7 @@
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
-  scroll-margin-top: 120px;
+  scroll-margin-top: 12px;
 }
 .workbench-heading,
 .workbench-heading > div,

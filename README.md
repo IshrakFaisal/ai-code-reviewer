@@ -46,6 +46,18 @@ Settings displays server configuration presence and execution prerequisites with
 
 **How it works** opens `/how-it-works`, a dedicated guide with quick start instructions, the full investigation pipeline, risk scoring, evidence status/provenance, analysis modes, execution requirements, review/follow-up tools, data limits, and FAQs. A linked contents list, fourteen-stage disclosure, and mobile Guide navigation make the detailed content accessible.
 
+## Review workbench and action plan
+
+Reports combine a searchable changed-file explorer, unified source diff with separate base/head line numbers, related findings, recorded test source, and evidence output. **Review focus** narrows the explorer to high-risk files, files with findings, or high-risk execution gaps. Search supports multiple path/category/status terms. Arrow keys, Home, and End navigate the visible file buttons; filtering preserves the selected file and labels it when outside the filter. The evidence inspector shows its saved review decision.
+
+On live reports, **Check GitHub revision** reads current public repository/PR metadata using the server's GitHub integration. It compares both recorded commits, displays open/closed/merged/draft state, and offers reanalysis if either commit moved. No model or sandbox request is made. The check runs only when requested, remains an as-of snapshot, and a matching result expires after five minutes. Failures clear the previous match. Requests have a 25-second server deadline, a per-PR 15-second cooldown, two concurrent checks per process, authentication/origin protection, and actionable upstream errors. The standard public GitHub API limit applies; `GITHUB_TOKEN` is optional. Demo reports cannot query their illustrative PR.
+
+**Next steps** creates a deterministic action plan from saved decisions and original report evidence. It prioritizes revision changes, needs-fix decisions, open findings, failed/inconclusive execution, missing build/type/existing-test execution, high-risk execution gaps, and incomplete diff context. Dismissing or reviewing a finding cannot erase failed checks or fill coverage gaps. Links open the corresponding finding, file, or evidence section. The plan does not incorporate newer reproduction/repair artifacts into the immutable report.
+
+**Download action plan** creates a Markdown handoff with pinned commits, next steps, the current session's revision snapshot, saved notes, and evidence limitations. Save draft decisions first; exports never post to GitHub or approve a merge. The plan and revision check work without Nebius inference or Docker; live freshness requires GitHub network access.
+
+Filter **Next steps** by decisions, evidence, revision, or scope; the download always includes the full plan. Each failed or inconclusive check links directly to its evidence and opens its output, including findings hidden by active filters. Standalone generated checks remain visible under Verification. Workbench **Needs review** and **Needs fix** filters use saved decisions and can be combined with search. **All retrieved changes** opens the selected file’s full patch. Revision retries show a countdown and respect the server’s `Retry-After` response.
+
 ## Reproduce, repair, and recheck
 
 Open **Reproduce & repair** on a finding with a generated test, or use **Try reproduce & repair** on the overview. The dedicated page streams progress, saves the latest evidence separately from the original report, and survives reloads.
@@ -120,7 +132,7 @@ The demo PR is synthetic: `acme/platform #127`, 18 files and 1,437 changed lines
 | Individual finding handoff                                                                     | Copy/download a focused Markdown draft with pinned commits, saved decision, evidence, and a follow-up checklist                            |
 | Downloadable test proposals                                                                    | Download the recorded proposed test source for inspection; no test is generated or executed by downloading                                 |
 
-Live credentials were not supplied during development. Adapter validation and failures are tested with mocked HTTP responses; a live inference request still requires account validation.
+Live NVIDIA/Nebius inference was validated at the checkpoint recorded in the validation log. Sandbox adapters also have mocked contract tests; real Docker/remote execution still requires the corresponding machine and account configuration.
 
 Public GitHub retrieval was also smoke-tested through the production build without a token. See the [validation record](docs/VALIDATION.md) for exact checks and remaining integration validation.
 

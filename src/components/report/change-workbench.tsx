@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -12,13 +12,23 @@ import {
 import type { AnalysisReport } from "@/lib/types";
 import { diffRows } from "@/lib/reports/diff";
 import { cn } from "@/lib/utils";
+import {
+  filterWorkbenchFiles,
+  type WorkbenchScope,
+} from "@/lib/reports/workbench";
+import type { ReviewState } from "@/lib/reports/review";
+import { openReportTarget } from "./open-report-target";
 
 export function ChangeWorkbench({
   report,
   onOpenFinding,
+  review,
+  reviewError,
 }: {
   report: AnalysisReport;
   onOpenFinding: () => void;
+  review: ReviewState | null;
+  reviewError: string;
 }) {
   const files = useMemo(
     () => [...report.pr.files].sort((a, b) => b.risk.score - a.risk.score),
@@ -26,6 +36,8 @@ export function ChangeWorkbench({
   );
   const [path, setPath] = useState(files[0]?.path ?? "");
   const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<WorkbenchScope>("ALL");
+  const fileButtons = useRef(new Map<string, HTMLButtonElement>());
   const [findingId, setFindingId] = useState("");
   const [view, setView] = useState<"diff" | "test">("diff");
   const file = files.find((item) => item.path === path);
@@ -33,9 +45,15 @@ export function ChangeWorkbench({
     .filter((item) => item.affectedFiles.some((ref) => ref.path === path))
     .sort((a, b) => b.riskScore - a.riskScore);
   const finding = related.find((item) => item.id === findingId) ?? related[0];
-  const shown = files.filter((item) =>
-    item.path.toLowerCase().includes(query.toLowerCase()),
+  const shown = useMemo(
+    () => filterWorkbenchFiles(report, files, query, scope, review),
+    [report, files, query, scope, review],
   );
+  function selectFile(nextPath: string) {
+    setPath(nextPath);
+    setFindingId("");
+    setView("diff");
+  }
   const rows = useMemo(() => diffRows(file?.patch ?? ""), [file?.patch]);
   const canReproduce =
     finding?.generatedTest &&
@@ -68,25 +86,95 @@ export function ChangeWorkbench({
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
+          <label className="workbench-scope">
+            Review focus
+            <select
+              aria-label="Workbench review focus"
+              value={scope}
+              onChange={(event) =>
+                setScope(event.target.value as WorkbenchScope)
+              }
+            >
+              <option value="ALL">All changed files</option>
+              <option value="HIGH">High risk</option>
+              <option value="FINDINGS">With findings</option>
+              <option value="GAPS">High-risk execution gaps</option>
+              <option value="OPEN" disabled={!review}>
+                Needs review · saved
+              </option>
+              <option value="NEEDS_FIX" disabled={!review}>
+                Needs fix · saved
+              </option>
+            </select>
+          </label>
+          <div className="workbench-filter-status">
+            <span>
+              {shown.length} of {files.length} files
+            </span>
+            {(query || scope !== "ALL") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setScope("ALL");
+                }}
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
+          {file && !shown.some((item) => item.path === path) && (
+            <p className="workbench-selection-note">
+              Selected file is outside these filters.
+            </p>
+          )}
           <div
             className="workbench-file-list"
             role="group"
             aria-label="Workbench changed files"
+            onKeyDown={(event) => {
+              if (
+                !(event.target instanceof HTMLButtonElement) ||
+                !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) ||
+                !shown.length
+              )
+                return;
+              event.preventDefault();
+              const selectedPath = event.target.getAttribute("data-path");
+              const index = shown.findIndex(
+                (item) => item.path === selectedPath,
+              );
+              const next =
+                event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? shown.length - 1
+                    : Math.max(
+                        0,
+                        Math.min(
+                          shown.length - 1,
+                          index + (event.key === "ArrowDown" ? 1 : -1),
+                        ),
+                      );
+              selectFile(shown[next].path);
+              fileButtons.current.get(shown[next].path)?.focus();
+            }}
           >
             {shown.map((item) => (
               <button
                 key={item.path}
+                data-path={item.path}
+                ref={(element) => {
+                  if (element) fileButtons.current.set(item.path, element);
+                  else fileButtons.current.delete(item.path);
+                }}
                 type="button"
                 aria-pressed={path === item.path}
                 className={cn(
                   "workbench-file",
                   path === item.path && "selected",
                 )}
-                onClick={() => {
-                  setPath(item.path);
-                  setFindingId("");
-                  setView("diff");
-                }}
+                onClick={() => selectFile(item.path)}
                 title={item.path}
               >
                 <span
@@ -110,13 +198,13 @@ export function ChangeWorkbench({
             {!shown.length && (
               <p className="workbench-empty">
                 {files.length
-                  ? "No matching files. Try another name."
+                  ? "No matching files. Change the review focus or reset filters."
                   : "No changed files were retrieved."}
               </p>
             )}
           </div>
           <div className="workbench-explorer-note">
-            Ordered by risk score. Select a file to inspect its evidence.
+            Ordered by risk score. Use ↑ / ↓, Home, or End within the file list.
           </div>
         </div>
 
@@ -209,7 +297,19 @@ export function ChangeWorkbench({
                   : "Retrieved patch"
                 : "No patch"}
             </span>
-            <a href="#files">
+            <a
+              href={
+                file
+                  ? `#changed-file-${report.pr.files.indexOf(file)}`
+                  : "#files"
+              }
+              onClick={() => {
+                if (file)
+                  openReportTarget(
+                    `#changed-file-${report.pr.files.indexOf(file)}`,
+                  );
+              }}
+            >
               {rows.length > 500
                 ? "Preview limited to 500 lines · All retrieved changes"
                 : "All retrieved changes"}
@@ -259,6 +359,25 @@ export function ChangeWorkbench({
                 <span>{finding.riskScore} / 100</span>
               </div>
               <h3>{finding.title}</h3>
+              <span className="workbench-saved-decision">
+                Saved decision:{" "}
+                {review
+                  ? (
+                      {
+                        OPEN: "Needs review",
+                        NEEDS_FIX: "Needs fix",
+                        REVIEWED: "Reviewed",
+                        DISMISSED: "Dismissed",
+                      } as const
+                    )[
+                      (Object.hasOwn(review.findings, finding.id)
+                        ? review.findings[finding.id]?.status
+                        : undefined) ?? "OPEN"
+                    ]
+                  : reviewError
+                    ? "Unavailable · retry in Your review"
+                    : "Loading…"}
+              </span>
               <p>{finding.behavioralChange}</p>
               <h4>Verification evidence</h4>
               {finding.evidence.length ? (
@@ -306,7 +425,10 @@ export function ChangeWorkbench({
               <a
                 className="text-link"
                 href={`#${finding.id}`}
-                onClick={onOpenFinding}
+                onClick={() => {
+                  onOpenFinding();
+                  openReportTarget(`#${finding.id}`);
+                }}
               >
                 Full finding &amp; review <ArrowDown size={13} />
               </a>

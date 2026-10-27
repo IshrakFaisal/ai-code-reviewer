@@ -3,6 +3,7 @@ import { Shell } from "@/components/dashboard/shell";
 import { getConfig } from "@/lib/config";
 import "./globals.css";
 import "./workbench.css";
+import "./review-tools.css";
 export const metadata: Metadata = {
   title: "AI Change Verifier · Evidence-backed code review",
   description:

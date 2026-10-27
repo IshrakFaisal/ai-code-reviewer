@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 
 const sections = [
   ["workbench", "Workbench"],
+  ["review-plan", "Next steps"],
   ["summary", "Overview"],
   ["human-review", "Your review"],
   ["findings", "Findings"],

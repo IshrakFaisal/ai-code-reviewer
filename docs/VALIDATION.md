@@ -1,5 +1,23 @@
 # Validation record
 
+## Review workflow refinements — October 27, 2026
+
+- Added saved-decision file filters, next-step category filters with counts, direct links to every failed/inconclusive evidence record, and a revision retry countdown. Action-plan downloads retain the full plan regardless of the selected category.
+- Fixed navigation to filtered findings, opened the selected file’s full patch, exposed standalone generated checks, and corrected doubled anchor spacing. Evidence deduplication now preserves distinct outputs and timings. Unavailable saved decisions no longer appear to be loading indefinitely in the workbench.
+- `npm run lint`, `npm run typecheck`, `npm run build`, and `git diff --check` pass. The full suite passes **404 tests**, with **2 optional sandbox integrations skipped**. Five additional regression cases cover exact evidence targets, distinct execution outputs, saved-decision file filtering, and Retry-After parsing. Windows sandbox restrictions initially blocked existing temporary hardlink/symlink tests; the complete suite passed with the required filesystem access.
+- Browser checks passed for saved-decision filters and empty states, action categories, exact evidence navigation after hiding findings, expanded output and keyboard focus, selected-file patch opening, and full Markdown download contents. The report has no page-level horizontal overflow at 390px. Section navigation selects Next steps after anchor navigation. No browser warnings/errors were recorded.
+- A saved public `remzi-arpacidusseau/ostep-homework` PR #94 returned matching base/head commits and OPEN state. The retry button displayed a disabled countdown after success. No model inference, live repository execution, GitHub writes, environment edits, or reviewer-note changes were performed.
+- Local production preview: `http://127.0.0.1:3001`. Screenshots are saved under `artifacts/review-improvements-*.png`.
+
+## Revision freshness, review action plans, and workbench controls — October 26, 2026
+
+- `npm run lint` and `npm run typecheck` pass without warnings. `npm test`: 399 passed, 2 opt-in sandbox integrations skipped across 37 files. The optimized production build passes with the new revision route.
+- Added a manual, authenticated/origin-protected GitHub revision endpoint. A production HTTP check of saved `octocat/Hello-World` PR #11297 returned matching base/head SHAs and OPEN state with a no-store response. An immediate repeat returned HTTP 429 with Retry-After; demo revision checks returned HTTP 400 without calling GitHub.
+- The production home, history, settings, guide, demo report, and reproduction pages returned HTTP 200 with the expected sections and no server-rendering error markers. The live report rendered its revision control; its existing saved-review endpoint remained available and matched the recorded head.
+- New tests cover base/head drift, snapshot expiry, lifecycle/draft states, private-repository rejection, malformed upstream data, cancellation, authentication/origin/ID boundaries, per-PR cooldown, concurrency limits, deterministic action ordering, saved-decision/evidence separation, deduplication, missing checks, demo provenance, safe Markdown, and combined workbench filters.
+- Browser use was disabled in Work settings during this change. Visual checks, live keyboard interaction, and browser-triggered downloads for these additions could not be performed; HTTP and unit validation do not replace that remaining check.
+- No Nebius inference, real sandbox execution, GitHub writes, environment edits, or reviewer-note changes were needed. The revision snapshot is session-local and does not update or replace the original report. Docker/remote integration checks remain opt-in.
+
 ## Navy workbench interface — October 26, 2026
 
 - `npm run lint`, `npm run typecheck`, and the optimized production build pass without warnings. The checks were repeated after the final UI fixes.

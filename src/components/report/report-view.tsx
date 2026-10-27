@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -41,6 +42,10 @@ import { reanalysisHref } from "@/lib/reports/history";
 import { VerificationGaps } from "./verification-gaps";
 import { FindingHandoff } from "./finding-handoff";
 import { ChangeWorkbench } from "./change-workbench";
+import { RevisionStatus } from "./revision-status";
+import { ReviewPlan } from "./review-plan";
+import type { RevisionCheck } from "@/lib/reports/freshness";
+import { evidenceTarget } from "@/lib/reports/evidence-targets";
 
 function StatusIcon({ status }: { status: Evidence["status"] }) {
   return status === "PASS" ? (
@@ -59,9 +64,9 @@ const statusLabels: Record<Finding["status"], string> = {
   UNVERIFIED_RISK: "Unverified risk",
   INCONCLUSIVE: "Inconclusive",
 };
-function EvidenceRow({ evidence }: { evidence: Evidence }) {
+function EvidenceRow({ evidence, id }: { evidence: Evidence; id: string }) {
   return (
-    <div className="evidence-row">
+    <div className="evidence-row" id={id}>
       <StatusIcon status={evidence.status} />
       <div>
         <span>{evidence.description}</span>
@@ -177,7 +182,11 @@ function FindingCard({
           </h4>
           {f.evidence.length ? (
             f.evidence.map((e, i) => (
-              <EvidenceRow key={`${e.id}-${i}`} evidence={e} />
+              <EvidenceRow
+                key={`${e.id}-${i}`}
+                evidence={e}
+                id={`finding-evidence-${index}-${i}`}
+              />
             ))
           ) : (
             <p>No execution evidence available.</p>
@@ -237,11 +246,19 @@ function FindingCard({
   );
 }
 export function ReportView({ report }: { report: AnalysisReport }) {
+  const [revision, setRevision] = useState<RevisionCheck | null>(null);
   const [filter, setFilter] = useState("ALL");
   const [decisionFilter, setDecisionFilter] = useState<ReviewStatus | "ALL">(
     "ALL",
   );
   const checklist = useReviewChecklist(report);
+  function revealFindings() {
+    // Flush before the browser follows an anchor to a currently hidden finding.
+    flushSync(() => {
+      setFilter("ALL");
+      setDecisionFilter("ALL");
+    });
+  }
   const { pr, findings, checks } = report;
   const high = pr.files.filter((f) => f.risk.level === "HIGH").length,
     medium = pr.files.filter((f) => f.risk.level === "MEDIUM").length,
@@ -378,12 +395,18 @@ export function ReportView({ report }: { report: AnalysisReport }) {
         </div>
       </div>
       <ReportNavigation findings={findings.length} />
+      <RevisionStatus report={report} check={revision} onChange={setRevision} />
       <ChangeWorkbench
         report={report}
-        onOpenFinding={() => {
-          setFilter("ALL");
-          setDecisionFilter("ALL");
-        }}
+        review={checklist.review}
+        reviewError={checklist.error}
+        onOpenFinding={revealFindings}
+      />
+      <ReviewPlan
+        report={report}
+        checklist={checklist}
+        revision={revision}
+        onOpenFinding={revealFindings}
       />
       <section id="summary">
         <div className="section-heading compact">
@@ -607,9 +630,18 @@ export function ReportView({ report }: { report: AnalysisReport }) {
         </div>
         <div className="verification-grid">
           {checks
-            .filter((e) => e.type !== "Generated test")
-            .map((e) => (
-              <div className="check-card" key={e.id}>
+            .map((e, index) => ({ e, index }))
+            .filter(
+              ({ e }) =>
+                e.type !== "Generated test" ||
+                !evidenceTarget(report, e).findingId,
+            )
+            .map(({ e, index }) => (
+              <div
+                className="check-card"
+                key={`${e.id}-${index}`}
+                id={`report-check-${index}`}
+              >
                 <div>
                   <StatusIcon status={e.status} />
                   <h3>{e.type}</h3>
@@ -629,7 +661,9 @@ export function ReportView({ report }: { report: AnalysisReport }) {
                     ? "DETERMINISTIC DIFF CHECK"
                     : e.status === "NOT_RUN"
                       ? "CHECK NOT EXECUTED"
-                      : "COMMAND EXECUTED"}
+                      : e.provenance === "DEMO_FIXTURE"
+                        ? "EXECUTED · DEMO FIXTURE"
+                        : "COMMAND EXECUTED"}
                 </small>
                 {e.output && (
                   <details>
@@ -641,13 +675,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
             ))}
         </div>
       </section>
-      <VerificationGaps
-        report={report}
-        onShowFindings={() => {
-          setFilter("ALL");
-          setDecisionFilter("ALL");
-        }}
-      />
+      <VerificationGaps report={report} onShowFindings={revealFindings} />
       <section>
         <div className="section-heading">
           <div>
@@ -793,14 +821,14 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           </ol>
         </details>
       </section>
-      {!!report.warnings.length && (
-        <section className="coverage-panel">
+      {!!(report.warnings.length || pr.warnings.length) && (
+        <section id="report-limitations" className="coverage-panel">
           <div>
             <Info size={18} />
             <h3>Coverage & limitations</h3>
           </div>
           <ul>
-            {report.warnings.map((w, i) => (
+            {[...new Set([...report.warnings, ...pr.warnings])].map((w, i) => (
               <li key={i}>{w}</li>
             ))}
           </ul>
