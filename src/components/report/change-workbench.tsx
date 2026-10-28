@@ -40,6 +40,10 @@ export function ChangeWorkbench({
   const fileButtons = useRef(new Map<string, HTMLButtonElement>());
   const [findingId, setFindingId] = useState("");
   const [view, setView] = useState<"diff" | "test">("diff");
+  const [diffQuery, setDiffQuery] = useState("");
+  const [activeMatch, setActiveMatch] = useState(0);
+  const [activeHunk, setActiveHunk] = useState(-1);
+  const diffElements = useRef(new Map<number, HTMLDivElement>());
   const file = files.find((item) => item.path === path);
   const related = report.findings
     .filter((item) => item.affectedFiles.some((ref) => ref.path === path))
@@ -53,8 +57,43 @@ export function ChangeWorkbench({
     setPath(nextPath);
     setFindingId("");
     setView("diff");
+    setActiveMatch(0);
+    setActiveHunk(-1);
   }
   const rows = useMemo(() => diffRows(file?.patch ?? ""), [file?.patch]);
+  const visibleRows = rows.slice(0, 500);
+  const matches = diffQuery.trim()
+    ? visibleRows.flatMap((row, index) =>
+        row.content.toLowerCase().includes(diffQuery.trim().toLowerCase())
+          ? [index]
+          : [],
+      )
+    : [];
+  const matchIndex = Math.min(activeMatch, Math.max(matches.length - 1, 0));
+  const hunks = visibleRows.flatMap((row, index) =>
+    row.kind === "hunk" ? [index] : [],
+  );
+  function navigateHunk(offset: number) {
+    if (!hunks.length) return;
+    const next =
+      activeHunk < 0
+        ? offset > 0
+          ? 0
+          : hunks.length - 1
+        : (activeHunk + offset + hunks.length) % hunks.length;
+    setActiveHunk(next);
+    diffElements.current
+      .get(hunks[next])
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  function navigateMatch(offset: number) {
+    if (!matches.length) return;
+    const next = (matchIndex + offset + matches.length) % matches.length;
+    setActiveMatch(next);
+    diffElements.current
+      .get(matches[next])
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
   const canReproduce =
     finding?.generatedTest &&
     (report.mode === "LIVE" || finding.id === "finding-1");
@@ -242,6 +281,64 @@ export function ChangeWorkbench({
               {report.pr.baseSha.slice(0, 7)} → {report.pr.headSha.slice(0, 7)}
             </span>
           </div>
+          {view === "diff" && file?.patch && (
+            <div className="workbench-diff-search">
+              <label>
+                Search this diff
+                <input
+                  value={diffQuery}
+                  onChange={(event) => {
+                    setDiffQuery(event.target.value);
+                    setActiveMatch(0);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      navigateMatch(event.shiftKey ? -1 : 1);
+                    }
+                  }}
+                  placeholder="Search visible lines…"
+                />
+              </label>
+              <span role="status">
+                {diffQuery.trim()
+                  ? `${matches.length ? matchIndex + 1 : 0} of ${matches.length} matching lines`
+                  : "Search the first 500 lines"}
+              </span>
+              <button
+                type="button"
+                disabled={!matches.length}
+                onClick={() => navigateMatch(-1)}
+                aria-label="Previous diff match"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={!matches.length}
+                onClick={() => navigateMatch(1)}
+                aria-label="Next diff match"
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                disabled={!hunks.length}
+                onClick={() => navigateHunk(-1)}
+                aria-label="Previous change hunk"
+              >
+                Previous change
+              </button>
+              <button
+                type="button"
+                disabled={!hunks.length}
+                onClick={() => navigateHunk(1)}
+                aria-label="Next change hunk"
+              >
+                Next change
+              </button>
+            </div>
+          )}
           {view === "test" && finding?.generatedTest ? (
             <div className="workbench-test">
               <p>{finding.generatedTest.strategy}</p>
@@ -262,12 +359,20 @@ export function ChangeWorkbench({
               tabIndex={0}
             >
               <div className="workbench-diff-rows">
-                {rows.slice(0, 500).map((row, index) => (
+                {visibleRows.map((row, index) => (
                   <div
                     key={index}
+                    ref={(element) => {
+                      if (element) diffElements.current.set(index, element);
+                      else diffElements.current.delete(index);
+                    }}
                     className={cn(
                       "workbench-diff-row",
                       `workbench-diff-${row.kind}`,
+                      matches.includes(index) && "workbench-diff-match",
+                      matches.length > 0 &&
+                        matches[matchIndex] === index &&
+                        "workbench-diff-active-match",
                     )}
                   >
                     <span aria-hidden="true">{row.before ?? ""}</span>

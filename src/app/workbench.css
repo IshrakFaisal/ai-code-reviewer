@@ -305,6 +305,49 @@
   min-height: 330px;
   padding-block: 10px;
 }
+
+.workbench-diff-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.workbench-diff-search label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workbench-diff-search input {
+  min-width: 0;
+  max-width: 180px;
+  padding: 6px 8px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid #526176;
+  border-radius: 4px;
+}
+.workbench-diff-search button {
+  padding: 5px 8px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid #526176;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.workbench-diff-search button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.workbench-diff-match {
+  box-shadow: inset 3px 0 #9a762c;
+}
+.workbench-diff-active-match {
+  outline: 1px solid #e7b750;
+  outline-offset: -1px;
+}
 .workbench-diff-rows {
   min-width: 100%;
   width: max-content;
