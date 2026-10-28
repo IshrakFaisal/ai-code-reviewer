@@ -545,7 +545,11 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           </div>
         </section>
       </div>
-      <ReviewOverview report={report} checklist={checklist} />
+      <ReviewOverview
+        report={report}
+        checklist={checklist}
+        onOpenFinding={revealFindings}
+      />
       <section id="findings">
         <div className="section-heading">
           <div>

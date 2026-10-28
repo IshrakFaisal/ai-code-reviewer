@@ -11,7 +11,7 @@ import {
   reviewPlanMarkdown,
   type ReviewAction,
 } from "@/lib/reports/review-plan";
-import type { ReviewChecklist } from "./review-checklist";
+import { ReviewDraftActions, type ReviewChecklist } from "./review-checklist";
 import { openReportTarget } from "./open-report-target";
 
 export function ReviewPlan({
@@ -118,6 +118,12 @@ export function ReviewPlan({
               : "Loading saved decisions; decision counts are unavailable."
             : "Only saved decisions are included."}
       </p>
+      <ReviewDraftActions checklist={checklist} onOpenFinding={onOpenFinding} />
+      {checklist.error && checklist.review && (
+        <p className="review-error" role="alert">
+          {checklist.error} <a href="#human-review">Go to review checklist</a>
+        </p>
+      )}
       <div
         className="review-plan-filters"
         role="group"

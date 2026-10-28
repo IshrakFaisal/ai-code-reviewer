@@ -1,5 +1,23 @@
 # Validation record
 
+## Browser draft recovery — October 28, 2026
+
+- Added tab-local draft recovery scoped to report/head, with a 24-hour expiry, bounded validation, storage-failure warnings, and comparison against the original saved baseline. Confirmed saves and resets clear recovery entries. Review unsaved drafts reveals and focuses the first edited finding even when filters hide it.
+- Browser checks exposed saved-decision timestamps leaking into draft storage and PATCH payloads. Both boundaries now explicitly serialize only status/note; regression tests exercise edits derived from actual saved decisions.
+- Final validation: **438 tests pass; 2 optional sandbox integrations skipped**. Lint, typecheck, production build, and `git diff --check` pass. Seventeen recovery tests cover isolation, expiry, malformed data, storage errors, partial saves, and changed baselines; seventeen client tests cover saving and request validation.
+- Browser checks passed for navigation recovery, finding-filter reset with keyboard focus, save-all success, reset followed by reload, and a competing save in another tab producing the recovered-draft comparison warning. The final conflict/reset check ran against the production build. No browser warnings/errors were recorded in that production tab. Browser storage-denial behavior is unit-tested rather than simulated through browser settings.
+- Used only synthetic report `373f33cd-95c6-4baf-ac1c-4cb38a7344b9`; its third finding was restored to an empty OPEN decision after smoke tests. Earlier test notes on the first two findings remain unchanged. Live inference and GitHub writes were not exercised.
+- Production preview: `http://127.0.0.1:3001`. The earlier dev server and browser sessions had ended during the interruption; the production preview was restarted for verification.
+
+## Draft saving and conflict recovery — October 27, 2026
+
+- Added Save all drafts to Next steps and the review checklist, per-finding Reset draft, save progress, and inline comparison with the latest loaded saved decision. Saves run in order with the last confirmed revision; a failed or conflicting response stops the remaining work without clearing those drafts. Earlier confirmed saves remain saved.
+- Review reads and each save have a 15-second deadline. Navigation cancels outstanding saves. Responses must match the report/head, increment the expected revision, and acknowledge the submitted status/note before the draft is cleared. A newer edit is never cleared by an older acknowledgement.
+- `npm run lint`, `npm run typecheck`, `npm run build`, and `git diff --check` pass. **420 tests pass; 2 optional sandbox integration tests remain skipped.** Sixteen new tests cover sequential revisions, partial failures, conflicts, malformed/mismatched acknowledgements, cancellation, deadlines, and draft preservation.
+- Production HTTP verification created one new synthetic report (`373f33cd-95c6-4baf-ac1c-4cb38a7344b9`), saved two decisions at revisions 1 and 2, confirmed a stale update returns HTTP 409, and reloaded the unchanged saved decisions. The report renders both review sections with HTTP 200. The initial PowerShell stream parser missed the completion ID; the newly persisted demo report was verified before continuing the checks.
+- Browser automation reported that local browser use is disabled in Work settings. Interactive save-button behavior and visual layout for these additions remain unverified this turn; unit and HTTP checks do not replace browser QA. Existing reviewer notes, live inference, repository execution, and GitHub data were not changed. The new synthetic report retains its clearly labeled smoke-test notes.
+- The updated production preview runs at `http://127.0.0.1:3001`.
+
 ## Review workflow refinements — October 27, 2026
 
 - Added saved-decision file filters, next-step category filters with counts, direct links to every failed/inconclusive evidence record, and a revision retry countdown. Action-plan downloads retain the full plan regardless of the selected category.

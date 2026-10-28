@@ -515,9 +515,19 @@ export default function HowItWorksPage() {
                 to inspect its output. Download action plan includes all steps
                 regardless of the selected filter, pinned revisions, the
                 session’s revision snapshot, next steps, and saved review notes.
-                Save draft decisions before exporting. Completing these steps is
-                not merge approval, and reproduction/repair results remain
-                separate from the original report.
+                Save draft decisions before exporting. Use Save all drafts to
+                save edited decisions in order; a conflict or failed request
+                stops the remaining saves and keeps their drafts on this page.
+                Successful earlier saves remain saved. Reset draft restores the
+                latest loaded saved decision for that finding. Unsaved edits can
+                be recovered in the same browser tab for up to 24 hours after
+                navigation or refresh. Compare any changed saved decisions
+                before saving a recovered draft. Review unsaved drafts reveals
+                the first edited finding, including when filters hide it. Save
+                before closing the tab; browser storage may be unavailable.
+                Completing these steps is not merge approval, and
+                reproduction/repair results remain separate from the original
+                report.
               </li>
             </ol>
             <p>

@@ -58,6 +58,10 @@ On live reports, **Check GitHub revision** reads current public repository/PR me
 
 Filter **Next steps** by decisions, evidence, revision, or scope; the download always includes the full plan. Each failed or inconclusive check links directly to its evidence and opens its output, including findings hidden by active filters. Standalone generated checks remain visible under Verification. Workbench **Needs review** and **Needs fix** filters use saved decisions and can be combined with search. **All retrieved changes** opens the selected file’s full patch. Revision retries show a countdown and respect the server’s `Retry-After` response.
 
+**Save all drafts** is available in Next steps and Your review checklist. It saves only edited decisions, in report order, and shows progress. Each save uses the last confirmed review revision; a conflict or failed request stops the remaining saves and keeps their drafts. Successful earlier saves remain saved. **Reset draft** restores a finding’s latest loaded saved status and note. On conflicts, compare the loaded saved version beside your draft before retrying. Review loads and each save have a 15-second deadline.
+
+Unsaved edits are recovered after navigation or refresh in the same browser tab for up to 24 hours, scoped to the report and commit. Recovery is browser-local and does not save decisions to the server. If saved decisions changed while you were away, compare them with the recovered draft before saving. **Review unsaved drafts** reveals the first edited finding even when filters hide it. Save before closing the tab; blocked or full browser storage is reported explicitly.
+
 ## Reproduce, repair, and recheck
 
 Open **Reproduce & repair** on a finding with a generated test, or use **Try reproduce & repair** on the overview. The dedicated page streams progress, saves the latest evidence separately from the original report, and survives reloads.
@@ -262,7 +266,7 @@ Use **Copy Markdown** or **Download Markdown** to share a summary containing you
 
 Decisions are tied to the exact report and head commit; reviewing or dismissing a finding does not change its evidence or verify a fix. Concurrent saves from another tab return a conflict and preserve your draft for review before retrying.
 
-This is a shared checklist for the workspace owner. Review revision snapshots live in `.data/reviews/` on the same persistent filesystem as reports; earlier notes remain in those snapshots after edits. Report retention does not remove review snapshots. The sample report at `/report/demo` has its own stable checklist. Unsaved drafts exist only in the browser page, so save them before navigating away.
+This is a shared checklist for the workspace owner. Review revision snapshots live in `.data/reviews/` on the same persistent filesystem as reports; earlier notes remain in those snapshots after edits. Report retention does not remove review snapshots. The sample report at `/report/demo` has its own stable checklist. Unsaved drafts are temporarily cached in this tab's session storage for recovery (up to 24 hours). Save them to keep them beyond the browser session. Saved or reset drafts are removed from recovery storage.
 
 ## Follow-up review and comparisons
 

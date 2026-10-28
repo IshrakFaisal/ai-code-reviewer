@@ -129,6 +129,50 @@
   gap: 7px;
   margin-top: 18px;
 }
+.review-draft-actions,
+.finding-review-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.review-draft-actions:has(button),
+.review-draft-actions:has(span:not(:empty)) {
+  margin: 12px 0;
+}
+.review-draft-actions > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.review-save-conflict {
+  margin-top: 12px;
+  border-left: 2px solid var(--amber);
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.review-save-conflict > p {
+  color: var(--amber);
+}
+.review-save-conflict details {
+  margin-top: 8px;
+}
+.review-save-conflict summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.review-saved-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.review-recovery-notice {
+  flex-basis: 100%;
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
 .review-plan-filters button {
   display: inline-flex;
   align-items: center;
