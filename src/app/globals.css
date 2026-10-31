@@ -2942,6 +2942,21 @@ details[open] > summary > svg:last-child {
   gap: 16px;
   margin-top: 28px;
 }
+.history-view-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 16px;
+}
+.history-view-options label {
+  flex: 1 1 220px;
+}
+.history-view-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 12px;
+}
+.history-view-options label,
 .history-filters label,
 .comparison-picker label {
   display: grid;
@@ -2950,6 +2965,7 @@ details[open] > summary > svg:last-child {
   color: var(--muted);
   min-width: 0;
 }
+.history-view-options select,
 .history-filters input,
 .history-filters select,
 .comparison-picker select {
@@ -2974,7 +2990,7 @@ details[open] > summary > svg:last-child {
 .history-search input {
   padding-left: 36px;
 }
-.history-filters + .list-toolbar {
+.history-page .list-toolbar {
   margin-top: 18px;
   min-height: 32px;
 }

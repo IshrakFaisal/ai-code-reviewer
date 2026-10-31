@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
-import Link from "next/link";
+import { DraftProtectedLink as Link } from "@/components/report/draft-navigation";
 import {
   AlertCircle,
   ArrowDown,
@@ -12,7 +12,6 @@ import {
   ChevronRight,
   CircleDot,
   Code2,
-  Download,
   ExternalLink,
   FileCode2,
   FlaskConical,
@@ -45,7 +44,18 @@ import { ChangeWorkbench } from "./change-workbench";
 import { RevisionStatus } from "./revision-status";
 import { ReviewPlan } from "./review-plan";
 import type { RevisionCheck } from "@/lib/reports/freshness";
-import { evidenceTarget } from "@/lib/reports/evidence-targets";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  reportSectionLocation,
+  reportTargetHref,
+} from "@/lib/reports/sections";
+import { openReportTarget } from "./open-report-target";
+import { ReportSummary } from "./report-summary";
+import { ReportExports } from "./report-exports";
+import {
+  evidenceIdentity,
+  reportEvidence,
+} from "@/lib/reports/verification-gaps";
 
 function StatusIcon({ status }: { status: Evidence["status"] }) {
   return status === "PASS" ? (
@@ -206,6 +216,27 @@ function FindingCard({
             </summary>
             <div>
               <p>{f.generatedTest.strategy}</p>
+              {f.generatedTest.context && (
+                <div>
+                  <p>
+                    Generation context at commit{" "}
+                    <code>{f.generatedTest.context.headSha.slice(0, 7)}</code>
+                  </p>
+                  <ul>
+                    {f.generatedTest.context.files.map((file) => (
+                      <li key={file.path}>
+                        <code>{file.path}</code> · {file.role}
+                        {file.truncated ? " · truncated excerpt" : ""}
+                      </li>
+                    ))}
+                  </ul>
+                  <ul>
+                    {f.generatedTest.context.limitations.map((limitation) => (
+                      <li key={limitation}>{limitation}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <pre className="code-block">
                 <code>{f.generatedTest.code}</code>
               </pre>
@@ -246,12 +277,52 @@ function FindingCard({
   );
 }
 export function ReportView({ report }: { report: AnalysisReport }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const location = reportSectionLocation(pathname);
+  const section = location?.section ?? "summary";
+  // Also support bookmarks and exported links from the previous single-page report.
+  useEffect(() => {
+    const reveal = () => {
+      if (!window.location.hash) return;
+      let target: string;
+      try {
+        target = decodeURIComponent(window.location.hash.slice(1));
+      } catch {
+        return;
+      }
+      if (
+        !/^(summary|revision-status|workbench|human-review|review-plan|verification|evidence-gaps|report-limitations|files|changes|agent-log|findings)$/.test(
+          target,
+        ) &&
+        !/^(finding-evidence-|report-check-|changed-file-)\d/.test(target) &&
+        !report.findings.some((finding) => finding.id === target)
+      )
+        return;
+      const destination = reportTargetHref(report.id, window.location.hash);
+      if (destination.split("#")[0] !== pathname) {
+        router.replace(destination);
+        return;
+      }
+      openReportTarget(window.location.hash);
+      document.getElementById(target)?.scrollIntoView({ block: "start" });
+    };
+    reveal();
+    window.addEventListener("hashchange", reveal);
+    return () => window.removeEventListener("hashchange", reveal);
+  }, [pathname, report.id, report.findings, router]);
   const [revision, setRevision] = useState<RevisionCheck | null>(null);
   const [filter, setFilter] = useState("ALL");
   const [decisionFilter, setDecisionFilter] = useState<ReviewStatus | "ALL">(
     "ALL",
   );
   const checklist = useReviewChecklist(report);
+  const [filterPath, setFilterPath] = useState(pathname);
+  if (filterPath !== pathname) {
+    setFilterPath(pathname);
+    setFilter("ALL");
+    setDecisionFilter("ALL");
+  }
   function revealFindings() {
     // Flush before the browser follows an anchor to a currently hidden finding.
     flushSync(() => {
@@ -261,8 +332,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
   }
   const { pr, findings, checks } = report;
   const high = pr.files.filter((f) => f.risk.level === "HIGH").length,
-    medium = pr.files.filter((f) => f.risk.level === "MEDIUM").length,
-    low = pr.files.filter((f) => f.risk.level === "LOW").length;
+    medium = pr.files.filter((f) => f.risk.level === "MEDIUM").length;
   const visible = findings.filter(
     (f) =>
       (filter === "ALL" || f.severity === filter) &&
@@ -270,11 +340,19 @@ export function ReportView({ report }: { report: AnalysisReport }) {
         (checklist.review?.findings[f.id]?.status ?? "OPEN") ===
           decisionFilter),
   );
-  const generated = checks.filter((c) => c.type === "Generated test").length
-    ? checks.filter((c) => c.type === "Generated test")
-    : findings.flatMap((f) =>
-        f.evidence.filter((e) => e.type === "Generated test"),
-      );
+  const allEvidence = reportEvidence(report);
+  const generated = allEvidence.filter(
+    (item) => item.type === "Generated test",
+  );
+  // Keep original check indices stable for saved evidence links, then include
+  // evidence recorded only on a finding (including older report formats).
+  const checkIdentities = new Set(checks.map(evidenceIdentity));
+  const verificationChecks = [
+    ...checks,
+    ...allEvidence.filter(
+      (item) => !checkIdentities.has(evidenceIdentity(item)),
+    ),
+  ];
   const areas = report.riskMap
     .filter(
       (r) =>
@@ -283,16 +361,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
         ),
     )
     .slice(0, 5);
-  function download() {
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `change-verifier-pr-${pr.number}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  if (!location) return null;
   return (
     <div className="page report-page">
       <div className="report-topline">
@@ -306,10 +375,7 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           >
             {report.mode === "DEMO" ? "DEMO MODE" : "LIVE REPORT"}
           </span>
-          <Button variant="outline" size="small" onClick={download}>
-            <Download size={14} />
-            Export JSON
-          </Button>
+          <ReportExports report={report} />
         </div>
       </div>
       <div className="report-title">
@@ -372,465 +438,487 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           </span>
         </div>
       )}
-      <div className="report-followup" aria-label="Follow-up review">
-        <div>
-          <strong>Follow up on this change</strong>
-          <p>
-            Run a fresh investigation or compare observations from earlier saved
-            runs.
-          </p>
-        </div>
-        <div className="followup-actions">
-          {report.id !== "demo" && (
+      {section === "summary" && (
+        <div className="report-followup" aria-label="Follow-up review">
+          <div className="followup-actions">
+            {report.id !== "demo" && (
+              <Button asChild variant="outline" size="small">
+                <Link href={`/report/${report.id}/compare`}>Compare runs</Link>
+              </Button>
+            )}
             <Button asChild variant="outline" size="small">
-              <Link href={`/report/${report.id}/compare`}>Compare runs</Link>
+              <Link href={reanalysisHref(report)}>
+                {report.mode === "DEMO" ? "Run demo again" : "Analyze again"}
+                <ArrowRight size={14} />
+              </Link>
             </Button>
-          )}
-          <Button asChild variant="outline" size="small">
-            <Link href={reanalysisHref(report)}>
-              {report.mode === "DEMO" ? "Run demo again" : "Analyze again"}
-              <ArrowRight size={14} />
-            </Link>
-          </Button>
+          </div>
         </div>
-      </div>
-      <ReportNavigation findings={findings.length} />
-      <RevisionStatus report={report} check={revision} onChange={setRevision} />
-      <ChangeWorkbench
-        report={report}
-        review={checklist.review}
-        reviewError={checklist.error}
-        onOpenFinding={revealFindings}
+      )}
+      <ReportNavigation
+        id={report.id}
+        active={section}
+        findings={findings.length}
       />
-      <ReviewPlan
-        report={report}
-        checklist={checklist}
-        revision={revision}
-        onOpenFinding={revealFindings}
-      />
-      <section id="summary">
-        <div className="section-heading compact">
-          <h2>Review summary</h2>
-          <span className="subtle">
-            Where your attention makes a difference
-          </span>
-        </div>
-        <div className="summary-grid">
-          <div className="summary-card summary-high">
-            <strong>{high.toString().padStart(2, "0")}</strong>
-            <div>
-              <h3>Require human attention</h3>
-              <p>Files with high risk signals</p>
-            </div>
-          </div>
-          <div className="summary-card summary-medium">
-            <strong>{medium.toString().padStart(2, "0")}</strong>
-            <div>
-              <h3>Worth reviewing</h3>
-              <p>Files with moderate risk signals</p>
-            </div>
-          </div>
-          <div className="summary-card summary-low">
-            <strong>{low.toString().padStart(2, "0")}</strong>
-            <div>
-              <h3>Lower priority</h3>
-              <p>Based on current verification</p>
-            </div>
-          </div>
-        </div>
-      </section>
-      <div className="report-overview-grid">
-        <section className="panel risk-map">
-          <div className="panel-heading">
-            <h2>Risk map</h2>
-            <Network size={17} />
-          </div>
-          <p className="panel-caption">
-            Deterministic signals across affected systems
-          </p>
-          {areas.map((r) => (
-            <div className="risk-map-row" key={r.category}>
-              <span>{titleCase(r.category)}</span>
-              <div className="risk-track">
-                <i
-                  className={`bar-${r.level === "HIGH" ? "red" : r.level === "MEDIUM" ? "amber" : "green"}`}
-                  style={{ width: `${Math.max(5, Math.min(r.score, 100))}%` }}
-                />
+      {section === "summary" && (
+        <>
+          <ReportSummary report={report} />
+          <RevisionStatus
+            report={report}
+            check={revision}
+            onChange={setRevision}
+          />
+        </>
+      )}
+      {section === "workbench" && (
+        <>
+          {" "}
+          <ChangeWorkbench
+            report={report}
+            review={checklist.review}
+            reviewError={checklist.error}
+            onOpenFinding={revealFindings}
+          />
+        </>
+      )}
+      {section === "next-steps" && (
+        <>
+          {" "}
+          <ReviewPlan
+            report={report}
+            checklist={checklist}
+            revision={revision}
+            onOpenFinding={revealFindings}
+          />
+        </>
+      )}
+      {section === "changes" && (
+        <>
+          {" "}
+          <div className="report-overview-grid">
+            <section className="panel risk-map">
+              <div className="panel-heading">
+                <h2>Risk map</h2>
+                <Network size={17} />
               </div>
-              <span className={cn("risk-badge", r.level.toLowerCase())}>
-                {r.level}
-              </span>
-              <small>
-                {r.fileCount} {r.fileCount === 1 ? "file" : "files"}
-              </small>
-            </div>
-          ))}
-          <details className="blast-details">
-            <summary>
-              <Network size={14} />
-              Potentially connected systems
-              <ChevronRight size={14} />
-            </summary>
-            <div className="blast-root">
-              <GitPullRequest size={15} />
-              Pull request #{pr.number}
-            </div>
-            <div className="blast-line" />
-            <div className="blast-nodes">
-              {areas.slice(0, 3).map((r) => (
-                <div key={r.category}>
+              <p className="panel-caption">
+                Deterministic signals across affected systems
+              </p>
+              {areas.map((r) => (
+                <div className="risk-map-row" key={r.category}>
+                  <span>{titleCase(r.category)}</span>
+                  <div className="risk-track">
+                    <i
+                      className={`bar-${r.level === "HIGH" ? "red" : r.level === "MEDIUM" ? "amber" : "green"}`}
+                      style={{
+                        width: `${Math.max(5, Math.min(r.score, 100))}%`,
+                      }}
+                    />
+                  </div>
                   <span className={cn("risk-badge", r.level.toLowerCase())}>
-                    {titleCase(r.category)}
+                    {r.level}
                   </span>
-                  <p>
-                    {r.connected.map(titleCase).join(" · ") ||
-                      "No inferred connections"}
-                  </p>
+                  <small>
+                    {r.fileCount} {r.fileCount === 1 ? "file" : "files"}
+                  </small>
                 </div>
               ))}
-            </div>
-            <p className="small-note">
-              Category-based relationships, not verified runtime dependencies.
-            </p>
-          </details>
-        </section>
-        <section className="panel review-surface">
-          <div className="panel-heading">
-            <h2>Priority review surface</h2>
-            <Target size={17} />
-          </div>
-          <div className="surface-number">
-            {report.reviewSurface.priorityLines}
-            <span> / {report.reviewSurface.totalLines.toLocaleString()}</span>
-          </div>
-          <p>
-            changed lines identified as high-priority
-            <br />
-            for human inspection
-          </p>
-          <div className="surface-grid" aria-hidden="true">
-            {Array.from({ length: 88 }, (_, i) => (
-              <i
-                key={i}
-                className={
-                  i <
-                  Math.ceil(
-                    (report.reviewSurface.priorityLines /
-                      Math.max(1, report.reviewSurface.totalLines)) *
-                      88,
-                  )
-                    ? "priority"
-                    : ""
-                }
-              />
-            ))}
-          </div>
-          <div className="surface-legend">
-            <span>
-              <i />
-              Priority review
-            </span>
-            <span>
-              <i />
-              Remaining changes
-            </span>
-          </div>
-          <div className="surface-note">
-            <Info size={14} />
-            <span>
-              {report.reviewSurface.partial
-                ? "Partial diff coverage. This count is a lower bound, not a safety estimate."
-                : "Lower priority does not mean safe. Review scope reflects currently available evidence."}
-            </span>
-          </div>
-        </section>
-      </div>
-      <ReviewOverview
-        report={report}
-        checklist={checklist}
-        onOpenFinding={revealFindings}
-      />
-      <section id="findings">
-        <div className="section-heading">
-          <div>
-            <h2>
-              Investigation findings{" "}
-              <span className="count-badge">{findings.length}</span>
-            </h2>
-            <p>Hypotheses investigated, with evidence you can inspect.</p>
-          </div>
-          <div className="finding-filters">
-            <label className="review-filter">
-              Review decision
-              <select
-                value={decisionFilter}
-                disabled={!checklist.review}
-                onChange={(event) =>
-                  setDecisionFilter(event.target.value as ReviewStatus | "ALL")
-                }
-              >
-                <option value="ALL">All decisions</option>
-                {reviewStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {reviewLabels[status]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div
-              className="filter-group"
-              role="group"
-              aria-label="Filter findings"
-            >
-              {["ALL", "HIGH", "MEDIUM", "LOW"].map((v) => (
-                <button
-                  key={v}
-                  className={filter === v ? "selected" : ""}
-                  aria-pressed={filter === v}
-                  onClick={() => setFilter(v)}
-                >
-                  {titleCase(v)}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        {visible.length ? (
-          visible.map((f) => (
-            <FindingCard
-              key={f.id}
-              finding={f}
-              report={report}
-              index={findings.indexOf(f)}
-              checklist={checklist}
-            />
-          ))
-        ) : (
-          <div className="panel empty-state">
-            <ShieldCheck size={26} />
-            <h3>No findings match these filters</h3>
-            <p>
-              This does not establish that the changes are safe. Check coverage
-              and verification limits.
-            </p>
-          </div>
-        )}
-      </section>
-      <section id="verification">
-        <div className="section-heading">
-          <div>
-            <h2>Verification results</h2>
-            <p>Executed checks and static inspection are shown separately.</p>
-          </div>
-          <span className="verification-total">
-            <b className="green">
-              {generated.filter((e) => e.status === "PASS").length} passed
-            </b>
-            <b className="red">
-              {generated.filter((e) => e.status === "FAIL").length} failed
-            </b>
-            <span>targeted tests</span>
-          </span>
-        </div>
-        <div className="verification-grid">
-          {checks
-            .map((e, index) => ({ e, index }))
-            .filter(
-              ({ e }) =>
-                e.type !== "Generated test" ||
-                !evidenceTarget(report, e).findingId,
-            )
-            .map(({ e, index }) => (
-              <div
-                className="check-card"
-                key={`${e.id}-${index}`}
-                id={`report-check-${index}`}
-              >
-                <div>
-                  <StatusIcon status={e.status} />
-                  <h3>{e.type}</h3>
-                  <span className={cn("check-status", e.status.toLowerCase())}>
-                    {e.status === "NOT_RUN"
-                      ? "NOT AVAILABLE"
-                      : e.status === "PASS"
-                        ? "PASSED"
-                        : e.status === "FAIL"
-                          ? "FAILED"
-                          : "REVIEW"}
-                  </span>
-                </div>
-                <p>{e.description}</p>
-                <small>
-                  {e.provenance === "STATIC"
-                    ? "DETERMINISTIC DIFF CHECK"
-                    : e.status === "NOT_RUN"
-                      ? "CHECK NOT EXECUTED"
-                      : e.provenance === "DEMO_FIXTURE"
-                        ? "EXECUTED · DEMO FIXTURE"
-                        : "COMMAND EXECUTED"}
-                </small>
-                {e.output && (
-                  <details>
-                    <summary>View output</summary>
-                    <pre className="code-block">{e.output}</pre>
-                  </details>
-                )}
-              </div>
-            ))}
-        </div>
-      </section>
-      <VerificationGaps report={report} onShowFindings={revealFindings} />
-      <section>
-        <div className="section-heading">
-          <div>
-            <h2>Behavioral changes</h2>
-            <p>{report.summary}</p>
-          </div>
-        </div>
-        <div className="behavior-grid">
-          {report.behaviors.map((b, i) => (
-            <article className="panel behavior-card" key={i}>
-              <span className="mini-badge">
-                {b.source === "AI_INFERENCE"
-                  ? "AI INFERENCE"
-                  : b.source === "DEMO"
-                    ? "DEMO SCENARIO"
-                    : "PATH HEURISTIC"}
-              </span>
-              <h3>{b.title}</h3>
-              <p>{b.description}</p>
-              <div>
-                {b.files.map((f) => (
-                  <code key={f}>{f}</code>
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-      <section id="files">
-        <div className="section-heading">
-          <div>
-            <h2>Files to review</h2>
-            <p>
-              Prioritized by explainable risk signals. Expand a file to inspect
-              its diff.
-            </p>
-          </div>
-          <span className="subtle">{pr.files.length} files analyzed</span>
-        </div>
-        <div className="file-list">
-          {[...pr.files]
-            .sort((a, b) => b.risk.score - a.risk.score)
-            .map((f) => (
-              <details
-                key={f.path}
-                id={`changed-file-${pr.files.indexOf(f)}`}
-                className="file-item"
-              >
+              <details className="blast-details">
                 <summary>
-                  <ChevronRight size={15} />
-                  <FileCode2 size={16} />
-                  <code>{f.path}</code>
-                  <span className="file-changes">
-                    <b className="green">+{f.additions}</b>
-                    <b className="red">−{f.deletions}</b>
-                  </span>
-                  <span
-                    className={cn("risk-badge", f.risk.level.toLowerCase())}
-                  >
-                    {f.risk.level}
-                  </span>
+                  <Network size={14} />
+                  Potentially connected systems
+                  <ChevronRight size={14} />
                 </summary>
-                <div className="file-expanded">
-                  <p>
-                    {f.risk.reasons.join(" · ") ||
-                      "No elevated deterministic risk signals. Lower priority based on current analysis."}
-                  </p>
-                  {f.lines.length < f.additions + f.deletions && (
-                    <p className="amber">Patch coverage is incomplete.</p>
-                  )}
-                  <pre className="code-block diff-block">
-                    {f.patch
-                      ? f.patch.split("\n").map((line, i) => (
-                          <span
-                            key={i}
-                            className={
-                              line.startsWith("+")
-                                ? "diff-add"
-                                : line.startsWith("-")
-                                  ? "diff-remove"
-                                  : line.startsWith("@@")
-                                    ? "diff-hunk"
-                                    : ""
-                            }
-                          >
-                            {line}
-                            {"\n"}
-                          </span>
-                        ))
-                      : "No textual patch available."}
-                  </pre>
+                <div className="blast-root">
+                  <GitPullRequest size={15} />
+                  Pull request #{pr.number}
                 </div>
+                <div className="blast-line" />
+                <div className="blast-nodes">
+                  {areas.slice(0, 3).map((r) => (
+                    <div key={r.category}>
+                      <span className={cn("risk-badge", r.level.toLowerCase())}>
+                        {titleCase(r.category)}
+                      </span>
+                      <p>
+                        {r.connected.map(titleCase).join(" · ") ||
+                          "No inferred connections"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <p className="small-note">
+                  Category-based relationships, not verified runtime
+                  dependencies.
+                </p>
               </details>
-            ))}
-        </div>
-      </section>
-      <section className="panel lower-priority">
-        <ShieldCheck size={22} />
-        <div>
-          <h3>
-            {low} lower-priority {low === 1 ? "change" : "changes"}
-          </h3>
-          <p>
-            These files have fewer deterministic risk signals. They have not
-            been declared safe, and unexecuted checks leave gaps in
-            verification.
-          </p>
-        </div>
-        <a href="#files" className="text-link">
-          Inspect files
-          <ArrowUpRight size={14} />
-        </a>
-      </section>
-      <section id="agent-log">
-        <div className="section-heading">
-          <div>
-            <h2>Agent investigation log</h2>
-            <p>
-              Concise actions and observations from the bounded investigation.
-            </p>
+            </section>
+            <section className="panel review-surface">
+              <div className="panel-heading">
+                <h2>Priority review surface</h2>
+                <Target size={17} />
+              </div>
+              <div className="surface-number">
+                {report.reviewSurface.priorityLines}
+                <span>
+                  {" "}
+                  / {report.reviewSurface.totalLines.toLocaleString()}
+                </span>
+              </div>
+              <p>
+                changed lines identified as high-priority
+                <br />
+                for human inspection
+              </p>
+              <div className="surface-grid" aria-hidden="true">
+                {Array.from({ length: 88 }, (_, i) => (
+                  <i
+                    key={i}
+                    className={
+                      i <
+                      Math.ceil(
+                        (report.reviewSurface.priorityLines /
+                          Math.max(1, report.reviewSurface.totalLines)) *
+                          88,
+                      )
+                        ? "priority"
+                        : ""
+                    }
+                  />
+                ))}
+              </div>
+              <div className="surface-legend">
+                <span>
+                  <i />
+                  Priority review
+                </span>
+                <span>
+                  <i />
+                  Remaining changes
+                </span>
+              </div>
+              <div className="surface-note">
+                <Info size={14} />
+                <span>
+                  {report.reviewSurface.partial
+                    ? "Partial diff coverage. This count is a lower bound, not a safety estimate."
+                    : "Lower priority does not mean safe. Review scope reflects currently available evidence."}
+                </span>
+              </div>
+            </section>
           </div>
-          <span className="mini-badge">{report.provider}</span>
-        </div>
-        <details className="panel agent-log-panel">
-          <summary>
-            <Terminal size={16} />
-            {report.events.length} investigation events
-            <ArrowDown size={15} />
-          </summary>
-          <ol className="agent-timeline">
-            {report.events.map((e, i) => (
-              <li key={i}>
-                <span>{String(i + 1).padStart(2, "0")}</span>
-                <div>
-                  <h3>
-                    {e.label}
-                    {e.phase && <small>{e.phase}</small>}
-                  </h3>
-                  <p>{e.detail}</p>
+        </>
+      )}
+      {section === "review" && (
+        <>
+          {" "}
+          <ReviewOverview
+            report={report}
+            checklist={checklist}
+            onOpenFinding={revealFindings}
+          />
+        </>
+      )}
+      {section === "findings" && (
+        <>
+          {" "}
+          <section id="findings">
+            <div className="section-heading">
+              <div>
+                <h2>
+                  Investigation findings{" "}
+                  <span className="count-badge">{findings.length}</span>
+                </h2>
+                <p>Hypotheses investigated, with evidence you can inspect.</p>
+              </div>
+              <div className="finding-filters">
+                <label className="review-filter">
+                  Review decision
+                  <select
+                    value={decisionFilter}
+                    disabled={!checklist.review}
+                    onChange={(event) =>
+                      setDecisionFilter(
+                        event.target.value as ReviewStatus | "ALL",
+                      )
+                    }
+                  >
+                    <option value="ALL">All decisions</option>
+                    {reviewStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {reviewLabels[status]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div
+                  className="filter-group"
+                  role="group"
+                  aria-label="Filter findings"
+                >
+                  {["ALL", "HIGH", "MEDIUM", "LOW"].map((v) => (
+                    <button
+                      key={v}
+                      className={filter === v ? "selected" : ""}
+                      aria-pressed={filter === v}
+                      onClick={() => setFilter(v)}
+                    >
+                      {titleCase(v)}
+                    </button>
+                  ))}
                 </div>
-              </li>
-            ))}
-          </ol>
-        </details>
-      </section>
-      {!!(report.warnings.length || pr.warnings.length) && (
+              </div>
+            </div>
+            {visible.length ? (
+              visible.map((f) => (
+                <FindingCard
+                  key={f.id}
+                  finding={f}
+                  report={report}
+                  index={findings.indexOf(f)}
+                  checklist={checklist}
+                />
+              ))
+            ) : (
+              <div className="panel empty-state">
+                <ShieldCheck size={26} />
+                <h3>No findings match these filters</h3>
+                <p>
+                  This does not establish that the changes are safe. Check
+                  coverage and verification limits.
+                </p>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+      {section === "verification" && (
+        <>
+          {" "}
+          <section id="verification">
+            <div className="section-heading">
+              <div>
+                <h2>Verification results</h2>
+                <p>
+                  Executed checks and static inspection are shown separately.
+                </p>
+              </div>
+              <span className="verification-total">
+                <b className="green">
+                  {generated.filter((e) => e.status === "PASS").length} passed
+                </b>
+                <b className="red">
+                  {generated.filter((e) => e.status === "FAIL").length} failed
+                </b>
+                <span>targeted tests</span>
+              </span>
+            </div>
+            <div className="verification-grid">
+              {verificationChecks
+                .map((e, index) => ({ e, index }))
+                .map(({ e, index }) => (
+                  <div
+                    className="check-card"
+                    key={`${e.id}-${index}`}
+                    id={`report-check-${index}`}
+                  >
+                    <div>
+                      <StatusIcon status={e.status} />
+                      <h3>{e.type}</h3>
+                      <span
+                        className={cn("check-status", e.status.toLowerCase())}
+                      >
+                        {e.status === "NOT_RUN"
+                          ? "NOT AVAILABLE"
+                          : e.status === "PASS"
+                            ? "PASSED"
+                            : e.status === "FAIL"
+                              ? "FAILED"
+                              : "REVIEW"}
+                      </span>
+                    </div>
+                    <p>{e.description}</p>
+                    <small>
+                      {e.provenance === "STATIC"
+                        ? "DETERMINISTIC DIFF CHECK"
+                        : e.status === "NOT_RUN"
+                          ? "CHECK NOT EXECUTED"
+                          : e.provenance === "DEMO_FIXTURE"
+                            ? "EXECUTED · DEMO FIXTURE"
+                            : "COMMAND EXECUTED"}
+                    </small>
+                    {e.output && (
+                      <details>
+                        <summary>View output</summary>
+                        <pre className="code-block">{e.output}</pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+            </div>
+            {!verificationChecks.length && (
+              <p className="small-note">
+                No checks were recorded. Review the evidence gaps before drawing
+                conclusions.
+              </p>
+            )}
+          </section>
+        </>
+      )}
+      {section === "gaps" && (
+        <>
+          {" "}
+          <VerificationGaps report={report} onShowFindings={revealFindings} />
+        </>
+      )}
+      {section === "changes" && (
+        <>
+          {" "}
+          <section>
+            <div className="section-heading">
+              <div>
+                <h2>Behavioral changes</h2>
+                <p>{report.summary}</p>
+              </div>
+            </div>
+            <div className="behavior-grid">
+              {report.behaviors.map((b, i) => (
+                <article className="panel behavior-card" key={i}>
+                  <span className="mini-badge">
+                    {b.source === "AI_INFERENCE"
+                      ? "AI INFERENCE"
+                      : b.source === "DEMO"
+                        ? "DEMO SCENARIO"
+                        : "PATH HEURISTIC"}
+                  </span>
+                  <h3>{b.title}</h3>
+                  <p>{b.description}</p>
+                  <div>
+                    {b.files.map((f) => (
+                      <code key={f}>{f}</code>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+          <section id="files">
+            <div className="section-heading">
+              <div>
+                <h2>Files to review</h2>
+                <p>
+                  Prioritized by explainable risk signals. Expand a file to
+                  inspect its diff.
+                </p>
+              </div>
+              <span className="subtle">{pr.files.length} files analyzed</span>
+            </div>
+            <div className="file-list">
+              {[...pr.files]
+                .sort((a, b) => b.risk.score - a.risk.score)
+                .map((f) => (
+                  <details
+                    key={f.path}
+                    id={`changed-file-${pr.files.indexOf(f)}`}
+                    className="file-item"
+                  >
+                    <summary>
+                      <ChevronRight size={15} />
+                      <FileCode2 size={16} />
+                      <code>{f.path}</code>
+                      <span className="file-changes">
+                        <b className="green">+{f.additions}</b>
+                        <b className="red">−{f.deletions}</b>
+                      </span>
+                      <span
+                        className={cn("risk-badge", f.risk.level.toLowerCase())}
+                      >
+                        {f.risk.level}
+                      </span>
+                    </summary>
+                    <div className="file-expanded">
+                      <p>
+                        {f.risk.reasons.join(" · ") ||
+                          "No elevated deterministic risk signals. Lower priority based on current analysis."}
+                      </p>
+                      {f.lines.length < f.additions + f.deletions && (
+                        <p className="amber">Patch coverage is incomplete.</p>
+                      )}
+                      <pre className="code-block diff-block">
+                        {f.patch
+                          ? f.patch.split("\n").map((line, i) => (
+                              <span
+                                key={i}
+                                className={
+                                  line.startsWith("+")
+                                    ? "diff-add"
+                                    : line.startsWith("-")
+                                      ? "diff-remove"
+                                      : line.startsWith("@@")
+                                        ? "diff-hunk"
+                                        : ""
+                                }
+                              >
+                                {line}
+                                {"\n"}
+                              </span>
+                            ))
+                          : "No textual patch available."}
+                      </pre>
+                    </div>
+                  </details>
+                ))}
+            </div>
+          </section>
+        </>
+      )}
+      {section === "activity" && (
+        <>
+          {" "}
+          <section id="agent-log">
+            <div className="section-heading">
+              <div>
+                <h2>Agent investigation log</h2>
+                <p>
+                  Concise actions and observations from the bounded
+                  investigation.
+                </p>
+              </div>
+              <span className="mini-badge">{report.provider}</span>
+            </div>
+            <details className="panel agent-log-panel">
+              <summary>
+                <Terminal size={16} />
+                {report.events.length} investigation events
+                <ArrowDown size={15} />
+              </summary>
+              <ol className="agent-timeline">
+                {report.events.map((e, i) => (
+                  <li key={i}>
+                    <span>{String(i + 1).padStart(2, "0")}</span>
+                    <div>
+                      <h3>
+                        {e.label}
+                        {e.phase && <small>{e.phase}</small>}
+                      </h3>
+                      <p>{e.detail}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          </section>
+        </>
+      )}
+      {section === "gaps" && (
         <section id="report-limitations" className="coverage-panel">
           <div>
             <Info size={18} />
             <h3>Coverage & limitations</h3>
           </div>
+          {!report.warnings.length && !pr.warnings.length && (
+            <p>No additional limitations recorded.</p>
+          )}
           <ul>
             {[...new Set([...report.warnings, ...pr.warnings])].map((w, i) => (
               <li key={i}>{w}</li>

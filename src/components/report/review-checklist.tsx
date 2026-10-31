@@ -1,6 +1,7 @@
 "use client";
+import { ReportTargetLink } from "./report-target-link";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Check,
   ClipboardList,
@@ -28,7 +29,9 @@ import {
 import {
   persistReviewDrafts,
   recoverReviewDrafts,
+  reviewDraftKey,
 } from "@/lib/reports/review-drafts";
+import { useDraftNavigation } from "./draft-navigation";
 import { openReportTarget } from "./open-report-target";
 
 export const reviewLabels: Record<ReviewStatus, string> = {
@@ -39,6 +42,7 @@ export const reviewLabels: Record<ReviewStatus, string> = {
 };
 
 export function useReviewChecklist(report: AnalysisReport) {
+  const { storage, register } = useDraftNavigation();
   const [review, setReview] = useState<ReviewState | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [error, setError] = useState("");
@@ -63,11 +67,15 @@ export function useReviewChecklist(report: AnalysisReport) {
       .then((state) => {
         if (!controller.signal.aborted) {
           try {
-            const recovered = recoverReviewDrafts(window.sessionStorage, state);
+            const recovered = recoverReviewDrafts(storage, state);
             draftsRef.current = recovered.drafts;
             setDrafts(recovered.drafts);
             setRecoveryNotice(recovered.notice);
             setRecoveryConflicts(recovered.conflicts);
+            if (storage.isVolatile(reviewDraftKey(state)))
+              setStorageWarning(
+                "Drafts are kept in memory while this app stays open. Save before refreshing or closing this tab.",
+              );
           } catch {
             setStorageWarning(
               "Draft recovery is unavailable in this browser. Save before leaving this page.",
@@ -86,7 +94,7 @@ export function useReviewChecklist(report: AnalysisReport) {
           );
       });
     return () => controller.abort();
-  }, [report.id, report.pr.headSha, attempt]);
+  }, [report.id, report.pr.headSha, attempt, storage]);
 
   const draftFor = (id: string): Draft =>
     drafts[id] ?? review?.findings[id] ?? { status: "OPEN", note: "" };
@@ -110,7 +118,7 @@ export function useReviewChecklist(report: AnalysisReport) {
     setDrafts(next);
     if (!saved) return;
     try {
-      if (!persistReviewDrafts(window.sessionStorage, saved, next))
+      if (!persistReviewDrafts(storage, saved, next))
         throw new Error("Storage unavailable");
       setStorageWarning("");
     } catch {
@@ -145,11 +153,11 @@ export function useReviewChecklist(report: AnalysisReport) {
   }
 
   async function save(ids: string[]) {
-    if (!review || saving.current) return;
+    if (!review || saving.current) return false;
     const pending = ids
       .filter(isDirty)
       .map((findingId) => ({ findingId, draft: { ...draftFor(findingId) } }));
-    if (!pending.length) return;
+    if (!pending.length) return true;
     saving.current = true;
     setError("");
     setFailedId(null);
@@ -180,8 +188,9 @@ export function useReviewChecklist(report: AnalysisReport) {
       setSaveMessage(
         `${savedCount} ${savedCount === 1 ? "draft saved" : "drafts saved"}. Your action plan and exports are updated.`,
       );
+      return true;
     } catch (failure) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return false;
       setFailedId(currentId);
       setSaveMessage(
         `${savedCount} of ${pending.length} drafts confirmed saved before saving stopped.`,
@@ -195,11 +204,27 @@ export function useReviewChecklist(report: AnalysisReport) {
           "Saving could not be confirmed. Remaining drafts are kept. Retry to check for a conflicting save before making further changes.",
         );
       }
+      return false;
     } finally {
       saving.current = false;
       if (!controller.signal.aborted) setSavingId(null);
     }
   }
+
+  useLayoutEffect(() =>
+    register({
+      dirtyCount,
+      busy: !!savingId,
+      storageWarning,
+      save: () => save(report.findings.map((finding) => finding.id)),
+      discard: () => {
+        if (saving.current) return;
+        replaceDrafts({});
+        setRecoveryConflicts([]);
+        setRecoveryNotice("");
+      },
+    }),
+  );
 
   // Native navigation gets the browser's standard unsaved-work protection.
   useEffect(() => {
@@ -260,7 +285,7 @@ export function ReviewDraftActions({
         </Button>
       )}
       {checklist.firstDirtyId && (
-        <a
+        <ReportTargetLink
           className="text-link"
           href={`#${checklist.firstDirtyId}`}
           onClick={() => {
@@ -269,7 +294,7 @@ export function ReviewDraftActions({
           }}
         >
           Review unsaved drafts
-        </a>
+        </ReportTargetLink>
       )}
       <span role="status">
         {checklist.saveMessage ||

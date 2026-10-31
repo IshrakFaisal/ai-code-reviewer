@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { DraftProtectedLink as Link } from "@/components/report/draft-navigation";
 import { ArrowRight, GitBranch, LoaderCircle, RefreshCw } from "lucide-react";
 import type { AnalysisReport } from "@/lib/types";
 import { Button } from "@/components/ui/button";

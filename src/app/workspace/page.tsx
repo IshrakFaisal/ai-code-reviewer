@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, FolderGit2, Settings2 } from "lucide-react";
-import { listReports } from "@/lib/reports/store";
+import { listReportsWithIssues } from "@/lib/reports/store";
+import { ReportStorageNotice } from "@/components/report/report-storage-notice";
 import { summarizeReport } from "@/lib/reports/history";
 import { workspaceSummary } from "@/lib/workspace/summary";
 import { ReportList } from "@/components/report/report-list";
@@ -16,7 +17,8 @@ const date = new Intl.DateTimeFormat("en-GB", {
 });
 
 export default async function WorkspacePage() {
-  const reports = (await listReports()).map(summarizeReport);
+  const listing = await listReportsWithIssues();
+  const reports = listing.reports.map(summarizeReport);
   const summary = workspaceSummary(reports);
   return (
     <div className="page workspace-page">
@@ -29,12 +31,16 @@ export default async function WorkspacePage() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/#analyze">
+          <Link href="/">
             New analysis
             <ArrowRight size={15} />
           </Link>
         </Button>
       </div>
+      <ReportStorageNotice
+        issues={listing.issues}
+        unavailable={listing.unavailable}
+      />
       <div className="workspace-overview-metrics">
         <div>
           <span>Saved analyses</span>

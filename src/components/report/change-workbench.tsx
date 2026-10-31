@@ -1,7 +1,9 @@
 "use client";
+import { ReportTargetLink } from "./report-target-link";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { flushSync } from "react-dom";
+import { DraftProtectedLink as Link } from "@/components/report/draft-navigation";
 import {
   ArrowDown,
   ArrowRight,
@@ -10,7 +12,12 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { AnalysisReport } from "@/lib/types";
-import { diffRows } from "@/lib/reports/diff";
+import {
+  diffRows,
+  diffPageSize,
+  matchingDiffRows,
+  nextDiffPosition,
+} from "@/lib/reports/diff";
 import { cn } from "@/lib/utils";
 import {
   filterWorkbenchFiles,
@@ -43,6 +50,7 @@ export function ChangeWorkbench({
   const [diffQuery, setDiffQuery] = useState("");
   const [activeMatch, setActiveMatch] = useState(0);
   const [activeHunk, setActiveHunk] = useState(-1);
+  const [diffPage, setDiffPage] = useState(0);
   const diffElements = useRef(new Map<number, HTMLDivElement>());
   const file = files.find((item) => item.path === path);
   const related = report.findings
@@ -59,40 +67,39 @@ export function ChangeWorkbench({
     setView("diff");
     setActiveMatch(0);
     setActiveHunk(-1);
+    setDiffPage(0);
+    setDiffQuery("");
   }
   const rows = useMemo(() => diffRows(file?.patch ?? ""), [file?.patch]);
-  const visibleRows = rows.slice(0, 500);
-  const matches = diffQuery.trim()
-    ? visibleRows.flatMap((row, index) =>
-        row.content.toLowerCase().includes(diffQuery.trim().toLowerCase())
-          ? [index]
-          : [],
-      )
-    : [];
+  const pageCount = Math.max(1, Math.ceil(rows.length / diffPageSize));
+  const pageStart = diffPage * diffPageSize;
+  const visibleRows = rows.slice(pageStart, pageStart + diffPageSize);
+  const matches = useMemo(
+    () => matchingDiffRows(rows, diffQuery),
+    [rows, diffQuery],
+  );
+  const matchSet = useMemo(() => new Set(matches), [matches]);
   const matchIndex = Math.min(activeMatch, Math.max(matches.length - 1, 0));
-  const hunks = visibleRows.flatMap((row, index) =>
+  const hunks = rows.flatMap((row, index) =>
     row.kind === "hunk" ? [index] : [],
   );
+  function revealRow(index: number) {
+    flushSync(() => setDiffPage(Math.floor(index / diffPageSize)));
+    diffElements.current
+      .get(index)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
   function navigateHunk(offset: number) {
     if (!hunks.length) return;
-    const next =
-      activeHunk < 0
-        ? offset > 0
-          ? 0
-          : hunks.length - 1
-        : (activeHunk + offset + hunks.length) % hunks.length;
+    const next = nextDiffPosition(activeHunk, hunks.length, offset);
     setActiveHunk(next);
-    diffElements.current
-      .get(hunks[next])
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    revealRow(hunks[next]);
   }
   function navigateMatch(offset: number) {
     if (!matches.length) return;
-    const next = (matchIndex + offset + matches.length) % matches.length;
+    const next = nextDiffPosition(matchIndex, matches.length, offset);
     setActiveMatch(next);
-    diffElements.current
-      .get(matches[next])
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    revealRow(matches[next]);
   }
   const canReproduce =
     finding?.generatedTest &&
@@ -290,20 +297,26 @@ export function ChangeWorkbench({
                   onChange={(event) => {
                     setDiffQuery(event.target.value);
                     setActiveMatch(0);
+                    const first = matchingDiffRows(rows, event.target.value)[0];
+                    if (first !== undefined) revealRow(first);
                   }}
                   onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setDiffQuery("");
+                      setActiveMatch(0);
+                    }
                     if (event.key === "Enter") {
                       event.preventDefault();
                       navigateMatch(event.shiftKey ? -1 : 1);
                     }
                   }}
-                  placeholder="Search visible lines…"
+                  placeholder="Search retrieved patch…"
                 />
               </label>
               <span role="status">
                 {diffQuery.trim()
                   ? `${matches.length ? matchIndex + 1 : 0} of ${matches.length} matching lines`
-                  : "Search the first 500 lines"}
+                  : "Search all retrieved lines"}
               </span>
               <button
                 type="button"
@@ -337,6 +350,47 @@ export function ChangeWorkbench({
               >
                 Next change
               </button>
+              <span role="status">
+                {activeHunk < 0
+                  ? `${hunks.length} change hunks`
+                  : `Change ${activeHunk + 1} of ${hunks.length}`}
+              </span>
+              {diffQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiffQuery("");
+                    setActiveMatch(0);
+                  }}
+                >
+                  Clear search
+                </button>
+              )}
+              <div className="workbench-diff-pagination">
+                <span role="status">
+                  Patch rows {pageStart + 1}–
+                  {Math.min(pageStart + diffPageSize, rows.length)} of{" "}
+                  {rows.length} · Page {diffPage + 1} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  disabled={diffPage === 0}
+                  onClick={() => revealRow(pageStart - diffPageSize)}
+                >
+                  Previous page
+                </button>
+                <button
+                  type="button"
+                  disabled={diffPage + 1 >= pageCount}
+                  onClick={() => revealRow(pageStart + diffPageSize)}
+                >
+                  Next page
+                </button>
+                <small>
+                  Search covers the retrieved patch only. Missing upstream
+                  changes cannot be searched.
+                </small>
+              </div>
             </div>
           )}
           {view === "test" && finding?.generatedTest ? (
@@ -359,27 +413,33 @@ export function ChangeWorkbench({
               tabIndex={0}
             >
               <div className="workbench-diff-rows">
-                {visibleRows.map((row, index) => (
-                  <div
-                    key={index}
-                    ref={(element) => {
-                      if (element) diffElements.current.set(index, element);
-                      else diffElements.current.delete(index);
-                    }}
-                    className={cn(
-                      "workbench-diff-row",
-                      `workbench-diff-${row.kind}`,
-                      matches.includes(index) && "workbench-diff-match",
-                      matches.length > 0 &&
-                        matches[matchIndex] === index &&
-                        "workbench-diff-active-match",
-                    )}
-                  >
-                    <span aria-hidden="true">{row.before ?? ""}</span>
-                    <span aria-hidden="true">{row.after ?? ""}</span>
-                    <code>{row.content || " "}</code>
-                  </div>
-                ))}
+                {visibleRows.map((row, offset) => {
+                  const index = pageStart + offset;
+                  return (
+                    <div
+                      key={index}
+                      ref={(element) => {
+                        if (element) diffElements.current.set(index, element);
+                        else diffElements.current.delete(index);
+                      }}
+                      className={cn(
+                        "workbench-diff-row",
+                        `workbench-diff-${row.kind}`,
+                        matchSet.has(index) && "workbench-diff-match",
+                        activeHunk >= 0 &&
+                          hunks[activeHunk] === index &&
+                          "workbench-diff-active-match",
+                        matches.length > 0 &&
+                          matches[matchIndex] === index &&
+                          "workbench-diff-active-match",
+                      )}
+                    >
+                      <span aria-hidden="true">{row.before ?? ""}</span>
+                      <span aria-hidden="true">{row.after ?? ""}</span>
+                      <code>{row.content || " "}</code>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -402,7 +462,7 @@ export function ChangeWorkbench({
                   : "Retrieved patch"
                 : "No patch"}
             </span>
-            <a
+            <ReportTargetLink
               href={
                 file
                   ? `#changed-file-${report.pr.files.indexOf(file)}`
@@ -415,11 +475,9 @@ export function ChangeWorkbench({
                   );
               }}
             >
-              {rows.length > 500
-                ? "Preview limited to 500 lines · All retrieved changes"
-                : "All retrieved changes"}
+              All retrieved changes
               <ArrowDown size={12} />
-            </a>
+            </ReportTargetLink>
           </div>
         </div>
 
@@ -527,7 +585,7 @@ export function ChangeWorkbench({
               ) : (
                 <p>No execution evidence is available for this finding.</p>
               )}
-              <a
+              <ReportTargetLink
                 className="text-link"
                 href={`#${finding.id}`}
                 onClick={() => {
@@ -536,7 +594,7 @@ export function ChangeWorkbench({
                 }}
               >
                 Full finding &amp; review <ArrowDown size={13} />
-              </a>
+              </ReportTargetLink>
               {canReproduce && (
                 <Link
                   className="button button-primary button-small"
@@ -563,9 +621,9 @@ export function ChangeWorkbench({
                 Absence of findings does not establish safety. Inspect the patch
                 and the report’s evidence gaps.
               </p>
-              <a className="text-link" href="#evidence-gaps">
+              <ReportTargetLink className="text-link" href="#evidence-gaps">
                 Inspect evidence gaps <ArrowDown size={13} />
-              </a>
+              </ReportTargetLink>
             </div>
           )}
         </aside>

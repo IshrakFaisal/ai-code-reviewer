@@ -21,6 +21,7 @@ export function assessRisk(
   if (has("AUTHENTICATION"))
     add("authentication", "Authentication logic changed");
   if (has("AUTHORIZATION")) add("authorization", "Authorization logic changed");
+  if (has("PAYMENTS")) add("payments", "Payment or billing behavior changed");
   if (has("DATABASE"))
     add("migration", "Database schema or persistence changed");
   if (has("DEPENDENCIES")) add("dependency", "Dependency manifest changed");

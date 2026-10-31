@@ -1,7 +1,8 @@
 "use client";
+import { ReportTargetLink } from "./report-target-link";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { DraftProtectedLink as Link } from "@/components/report/draft-navigation";
 import { ArrowRight, Download, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AnalysisReport } from "@/lib/types";
@@ -121,7 +122,10 @@ export function ReviewPlan({
       <ReviewDraftActions checklist={checklist} onOpenFinding={onOpenFinding} />
       {checklist.error && checklist.review && (
         <p className="review-error" role="alert">
-          {checklist.error} <a href="#human-review">Go to review checklist</a>
+          {checklist.error}{" "}
+          <ReportTargetLink href="#human-review">
+            Go to review checklist
+          </ReportTargetLink>
         </p>
       )}
       <div
@@ -177,23 +181,26 @@ export function ReviewPlan({
                 <ul className="review-action-targets">
                   {action.targets.map((target) => (
                     <li key={target.href}>
-                      <a href={target.href} onClick={() => open(target)}>
+                      <ReportTargetLink
+                        href={target.href}
+                        onClick={() => open(target)}
+                      >
                         {target.title}
-                      </a>
+                      </ReportTargetLink>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
             {action.href.startsWith("#") ? (
-              <a
+              <ReportTargetLink
                 className="review-action-open"
                 aria-label={`Open action: ${action.title}`}
                 href={action.href}
                 onClick={() => open(action)}
               >
                 <ArrowRight size={16} />
-              </a>
+              </ReportTargetLink>
             ) : (
               <Link
                 className="review-action-open"

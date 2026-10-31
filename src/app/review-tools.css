@@ -337,3 +337,31 @@
     font-size: 10px;
   }
 }
+.draft-navigation-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 24px;
+  margin: auto;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+.draft-navigation-dialog::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+.draft-navigation-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+.draft-navigation-dialog p {
+  margin: 12px 0;
+  line-height: 1.6;
+}
+.draft-navigation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}

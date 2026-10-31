@@ -202,7 +202,10 @@ export function ReproductionView({
   const explanation = result ? comparisonExplanation(result) : null;
   return (
     <div className="page reproduction-page">
-      <Link href={`/report/${report.id}#${finding.id}`} className="text-link">
+      <Link
+        href={`/report/${report.id}/findings#${finding.id}`}
+        className="text-link"
+      >
         <ArrowLeft size={14} />
         Back to finding
       </Link>

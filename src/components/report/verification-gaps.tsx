@@ -1,4 +1,5 @@
 "use client";
+import { ReportTargetLink } from "./report-target-link";
 
 import { useMemo, useState } from "react";
 import { ArrowRight, ChevronRight, Search } from "lucide-react";
@@ -175,14 +176,14 @@ export function VerificationGaps({
             </summary>
             <div className="gap-file-body">
               <div className="gap-file-actions">
-                <a
+                <ReportTargetLink
                   href={`#changed-file-${row.index}`}
                   className="text-link"
                   onClick={() => inspectFile(row.index)}
                 >
                   Inspect file diff
                   <ArrowRight size={13} />
-                </a>
+                </ReportTargetLink>
                 <span>
                   {!row.patchAvailable
                     ? "No textual diff recorded"
@@ -222,14 +223,14 @@ export function VerificationGaps({
                       <li key={finding.id}>{finding.title}</li>
                     ))}
                   </ul>
-                  <a
+                  <ReportTargetLink
                     href="#findings"
                     className="text-link"
                     onClick={onShowFindings}
                   >
                     Review related findings
                     <ArrowRight size={13} />
-                  </a>
+                  </ReportTargetLink>
                 </div>
               )}
             </div>
@@ -265,9 +266,9 @@ export function VerificationGaps({
       )}
       <p className="gap-scope-note">
         {gaps.unscoped.length} evidence records have no file-path links.{" "}
-        <a className="text-link" href="#verification">
+        <ReportTargetLink className="text-link" href="#verification">
           Inspect verification results
-        </a>
+        </ReportTargetLink>
         {gaps.outsideChangedFiles.length > 0 &&
           ` · ${gaps.outsideChangedFiles.length} records reference only paths outside the changed-file list.`}
       </p>

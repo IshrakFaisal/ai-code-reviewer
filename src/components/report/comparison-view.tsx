@@ -82,7 +82,7 @@ function FindingSnapshot({
           <code>{finding.status}</code>
           <Link
             className="text-link"
-            href={`/report/${report.id}#${encodeURIComponent(finding.id)}`}
+            href={`/report/${report.id}/findings#${encodeURIComponent(finding.id)}`}
           >
             Inspect finding
             <ArrowRight size={13} />

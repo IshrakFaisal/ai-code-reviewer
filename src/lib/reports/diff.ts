@@ -5,6 +5,28 @@ export type DiffRow = {
   after?: number;
 };
 
+export const diffPageSize = 500;
+
+/** Literal, case-insensitive search over every retrieved row, including later pages. */
+export function matchingDiffRows(rows: DiffRow[], query: string): number[] {
+  const term = query.trim().toLowerCase();
+  return term
+    ? rows.flatMap((row, index) =>
+        row.content.toLowerCase().includes(term) ? [index] : [],
+      )
+    : [];
+}
+
+export function nextDiffPosition(
+  current: number,
+  count: number,
+  direction: number,
+) {
+  if (!count) return -1;
+  if (current < 0 || current >= count) return direction > 0 ? 0 : count - 1;
+  return (current + direction + count) % count;
+}
+
 /** Keep both revision line numbers aligned with the original unified patch. */
 export function diffRows(patch: string): DiffRow[] {
   let before: number | undefined;

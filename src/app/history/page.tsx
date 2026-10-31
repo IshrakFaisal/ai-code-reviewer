@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { History, Plus } from "lucide-react";
-import { listReports } from "@/lib/reports/store";
+import { listReportsWithIssues } from "@/lib/reports/store";
+import { ReportStorageNotice } from "@/components/report/report-storage-notice";
 import { HistoryBrowser } from "@/components/report/history-browser";
 import { summarizeReport } from "@/lib/reports/history";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
   title: "Analysis history · AI Change Verifier",
 };
 export default async function HistoryPage() {
-  const reports = await listReports();
+  const { reports, issues, unavailable } = await listReportsWithIssues();
   return (
     <div className="page history-page">
       <div className="page-heading">
@@ -24,16 +25,21 @@ export default async function HistoryPage() {
           </p>
         </div>
         <Button asChild>
-          <Link href="/#analyze">
+          <Link href="/">
             <Plus size={16} />
             New analysis
           </Link>
         </Button>
       </div>
+      <ReportStorageNotice issues={issues} unavailable={unavailable} />
       {!reports.length ? (
         <div className="panel empty-state">
           <History size={28} />
-          <h2>No analyses yet</h2>
+          <h2>
+            {issues.length || unavailable
+              ? "No readable analyses"
+              : "No analyses yet"}
+          </h2>
           <p>
             Your completed reports will appear here. Start with the demo to
             explore the review workflow.

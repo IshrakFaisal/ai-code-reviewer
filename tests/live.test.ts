@@ -13,6 +13,7 @@ vi.mock("@/lib/github/pull-request", async () => {
   };
 });
 import { investigate } from "@/lib/agent/investigator";
+import { validateReport } from "@/lib/reports/schema";
 afterEach(() => vi.unstubAllEnvs());
 describe("live orchestration without credentials", () => {
   it("retains useful static analysis without inventing model or execution evidence", async () => {
@@ -22,6 +23,7 @@ describe("live orchestration without credentials", () => {
     vi.stubEnv("ENABLE_LOCAL_SANDBOX", "false");
     const report = await investigate({ input: "acme/platform", prNumber: 127 });
     expect(report.mode).toBe("LIVE");
+    expect(validateReport(report)).toEqual(report);
     expect(new Set(report.events.map((event) => event.stage)).size).toBe(14);
     expect(
       report.events

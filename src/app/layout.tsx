@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Shell } from "@/components/dashboard/shell";
+import { DraftNavigationProvider } from "@/components/report/draft-navigation";
 import { getConfig } from "@/lib/config";
 import "./globals.css";
 import "./workbench.css";
@@ -19,7 +20,9 @@ export default function RootLayout({
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>
-        <Shell demo={getConfig().demo}>{children}</Shell>
+        <DraftNavigationProvider>
+          <Shell demo={getConfig().demo}>{children}</Shell>
+        </DraftNavigationProvider>
       </body>
     </html>
   );

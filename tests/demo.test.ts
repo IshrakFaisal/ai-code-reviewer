@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runDemoFixture } from "@/lib/demo/fixture";
 import { investigate } from "@/lib/agent/investigator";
 import { samplePullRequest } from "@/lib/demo/sample-analysis";
+import { validateReport } from "@/lib/reports/schema";
 import type { AgentEvent } from "@/lib/types";
 afterEach(() => vi.unstubAllEnvs());
 describe("end-to-end demo investigation", () => {
@@ -29,6 +30,7 @@ describe("end-to-end demo investigation", () => {
       events.filter((e) => e.status !== "RUNNING").map((e) => e.stage),
     ).toEqual(Array.from({ length: 14 }, (_, i) => i));
     expect(report.findings).toHaveLength(1);
+    expect(validateReport(report)).toEqual(report);
     expect(report.findings[0].status).toBe("VERIFIED_ISSUE");
     expect(report.findings[0].severity).toBe("HIGH");
     expect(

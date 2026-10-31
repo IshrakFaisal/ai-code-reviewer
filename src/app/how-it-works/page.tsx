@@ -74,7 +74,7 @@ export default function HowItWorksPage() {
         </p>
         <div className="guide-header-actions">
           <Button asChild>
-            <Link href="/#analyze">
+            <Link href="/">
               Analyze a pull request
               <ArrowRight size={14} />
             </Link>
@@ -661,7 +661,7 @@ export default function HowItWorksPage() {
               </p>
             </div>
             <Button asChild>
-              <Link href="/#analyze">
+              <Link href="/">
                 Start an analysis
                 <ArrowRight size={14} />
               </Link>

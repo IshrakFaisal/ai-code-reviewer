@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import { ReportList } from "./report-list";
 import { Button } from "@/components/ui/button";
 import {
-  filterReports,
+  browseReports,
   historyFiltersFromParams,
   historyFilterHref,
   defaultHistoryFilters,
@@ -23,11 +23,13 @@ export function HistoryBrowser({ reports }: { reports: ReportSummary[] }) {
       else window.history.pushState(null, "", href);
     }
   };
-  const visible = filterReports(reports, filters);
+  const visible = browseReports(reports, filters);
   const filtered =
     filters.query !== "" ||
     filters.mode !== "ALL" ||
-    filters.priority !== "ALL";
+    filters.priority !== "ALL" ||
+    filters.runs !== "ALL" ||
+    filters.sort !== "NEWEST";
   return (
     <>
       <div
@@ -83,6 +85,46 @@ export function HistoryBrowser({ reports }: { reports: ReportSummary[] }) {
           </select>
         </label>
       </div>
+      <div className="history-view-options">
+        <label>
+          <span>Show runs</span>
+          <select
+            value={filters.runs}
+            onChange={(event) =>
+              setFilters({
+                ...filters,
+                runs: event.target.value as HistoryFilters["runs"],
+              })
+            }
+          >
+            <option value="ALL">All saved runs</option>
+            <option value="LATEST">Latest run per PR and mode</option>
+          </select>
+        </label>
+        <label>
+          <span>Sort by</span>
+          <select
+            value={filters.sort}
+            onChange={(event) =>
+              setFilters({
+                ...filters,
+                sort: event.target.value as HistoryFilters["sort"],
+              })
+            }
+          >
+            <option value="NEWEST">Newest first</option>
+            <option value="OLDEST">Oldest first</option>
+            <option value="PRIORITY">Most high-priority findings</option>
+          </select>
+        </label>
+      </div>
+      {filters.runs === "LATEST" && (
+        <p className="history-view-hint">
+          Search and priority filters apply to the latest retained run of each
+          PR. Demo and live runs are kept separate. Select all saved runs to
+          find older results.
+        </p>
+      )}
       <div className="list-toolbar">
         <span role="status">
           <strong>{visible.length}</strong> of {reports.length}{" "}
@@ -94,7 +136,7 @@ export function HistoryBrowser({ reports }: { reports: ReportSummary[] }) {
             size="small"
             onClick={() => setFilters(defaultHistoryFilters)}
           >
-            Clear filters
+            Reset view
           </Button>
         ) : (
           <span>Most recent first · Up to 100 retained locally</span>
@@ -111,7 +153,7 @@ export function HistoryBrowser({ reports }: { reports: ReportSummary[] }) {
             variant="outline"
             onClick={() => setFilters(defaultHistoryFilters)}
           >
-            Clear filters
+            Reset view
           </Button>
         </div>
       )}

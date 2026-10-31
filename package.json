@@ -25,6 +25,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
     "next": "^16.2.0",
+    "pdfmake": "^0.2.23",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^3.3.0",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
     "@types/node": "^22.0.0",
+    "@types/pdfmake": "^0.2.12",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.0.0",

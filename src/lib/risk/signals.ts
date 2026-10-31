@@ -1,6 +1,7 @@
 export const DEFAULT_WEIGHTS = {
   authentication: 30,
   authorization: 35,
+  payments: 30,
   migration: 30,
   dependency: 15,
   security: 25,

@@ -15,15 +15,20 @@ import {
   type NebiusConfiguration,
 } from "./models";
 import type { PullRequest, Hypothesis, Evidence } from "@/lib/types";
+import type { TestContext } from "./test-context";
 
-function context(pr: PullRequest) {
+function context(pr: PullRequest, preferred: string[] = []) {
   let budget = 75000;
   return {
     title: pr.title,
     description: pr.description,
     headSha: pr.headSha,
     files: [...pr.files]
-      .sort((a, b) => b.risk.score - a.risk.score)
+      .sort(
+        (a, b) =>
+          Number(preferred.includes(b.path)) -
+            Number(preferred.includes(a.path)) || b.risk.score - a.risk.score,
+      )
       .slice(0, 60)
       .map((f) => {
         const patch = (f.patch || "Patch unavailable").slice(
@@ -156,12 +161,55 @@ export class NebiusProvider implements AIProvider {
     );
     return groundHypotheses(result.hypotheses, pr);
   }
-  async generateVerificationPlan(pr: PullRequest, hypothesis: Hypothesis) {
-    return this.structured(
+  async generateVerificationPlan(
+    pr: PullRequest,
+    hypothesis: Hypothesis,
+    repository: TestContext,
+  ) {
+    if (
+      repository.headSha !== pr.headSha ||
+      !repository.files.some(
+        (file) =>
+          file.role === "source" &&
+          hypothesis.affectedFiles.some((ref) => ref.path === file.path),
+      )
+    )
+      throw new Error(
+        "Target source is unavailable at the recorded commit; no test was fabricated.",
+      );
+    const result = await this.structured(
       "Generate one targeted Vitest test and a concise verification strategy. The identical test may run at both the base and head revisions, twice each. Use stable, unique test titles, deterministic inputs, and an expected behavior justified by the supplied context. Do not branch on Git revision, filename, process arguments, clock, or environment to force a result. The test will be saved under .change-verifier/ in the repository root, using an isolated Node Vitest project without repository aliases or setup. Use relative imports from that location and Vitest expect assertions. Do not use shell commands, network calls, process execution, configuration overrides, or writes to runner reports.",
-      { pr: context(pr), hypothesis },
-      planSchema,
+      {
+        pr: context(
+          pr,
+          hypothesis.affectedFiles.map((ref) => ref.path),
+        ),
+        hypothesis,
+        repository,
+        instruction:
+          "Use supplied source exports, signatures, dependencies and real test examples. Configuration is reference material, not enabled runner setup. Return plan: null with a limitation if the expected behavior, imports, fixtures or runtime cannot be grounded; never invent application APIs or an assertion-free placeholder.",
+      },
+      z.object({
+        plan: planSchema.nullable(),
+        limitation: z.string().max(2400),
+      }),
     );
+    if (!result.plan)
+      throw new Error(
+        result.limitation ||
+          "Repository context is insufficient for a grounded test.",
+      );
+    return {
+      ...result.plan,
+      context: {
+        headSha: repository.headSha,
+        files: repository.files.map(({ content: _content, ...file }) => {
+          void _content;
+          return file;
+        }),
+        limitations: repository.limitations,
+      },
+    };
   }
   async analyzeExecutionEvidence(hypothesis: Hypothesis, evidence: Evidence[]) {
     return (

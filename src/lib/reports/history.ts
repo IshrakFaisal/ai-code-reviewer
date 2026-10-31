@@ -29,11 +29,15 @@ export type HistoryFilters = {
   query: string;
   mode: "ALL" | AnalysisReport["mode"];
   priority: "ALL" | "HIGH" | "NO_HIGH";
+  sort: "NEWEST" | "OLDEST" | "PRIORITY";
+  runs: "ALL" | "LATEST";
 };
 export const defaultHistoryFilters: HistoryFilters = {
   query: "",
   mode: "ALL",
   priority: "ALL",
+  sort: "NEWEST",
+  runs: "ALL",
 };
 export function historyFiltersFromParams(
   params: Pick<URLSearchParams, "getAll">,
@@ -43,26 +47,32 @@ export function historyFiltersFromParams(
     return values.length === 1 ? values[0] : "";
   };
   const mode = one("mode"),
-    priority = one("priority");
+    priority = one("priority"),
+    sort = one("sort");
   return {
     query: one("q").slice(0, 300),
     mode: mode === "LIVE" || mode === "DEMO" ? mode : "ALL",
     priority: priority === "HIGH" || priority === "NO_HIGH" ? priority : "ALL",
+    sort: sort === "OLDEST" || sort === "PRIORITY" ? sort : "NEWEST",
+    runs: one("runs") === "LATEST" ? "LATEST" : "ALL",
   };
 }
 export function historyFilterHref(filters: HistoryFilters, existing = "") {
   const params = new URLSearchParams(existing);
-  for (const key of ["q", "mode", "priority"]) params.delete(key);
+  for (const key of ["q", "mode", "priority", "sort", "runs"])
+    params.delete(key);
   if (filters.query) params.set("q", filters.query.slice(0, 300));
   if (filters.mode !== "ALL") params.set("mode", filters.mode);
   if (filters.priority !== "ALL") params.set("priority", filters.priority);
+  if (filters.sort !== "NEWEST") params.set("sort", filters.sort);
+  if (filters.runs !== "ALL") params.set("runs", filters.runs);
   const query = params.toString();
   return `/history${query ? `?${query}` : ""}`;
 }
 
 export function filterReports(
   reports: ReportSummary[],
-  filters: HistoryFilters,
+  filters: Pick<HistoryFilters, "query" | "mode" | "priority">,
 ) {
   const terms = filters.query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return reports.filter((report) => {
@@ -73,6 +83,45 @@ export function filterReports(
       `${report.pr.title} ${report.pr.owner}/${report.pr.repo} #${report.pr.number} ${report.pr.headSha}`.toLowerCase();
     return terms.every((term) => searchable.includes(term));
   });
+}
+
+/** Select latest runs before filtering so an older finding cannot stand in for a newer run. */
+export function browseReports(
+  reports: ReportSummary[],
+  filters: HistoryFilters,
+) {
+  const timestamp = (report: ReportSummary) => {
+    const value = Date.parse(report.createdAt);
+    return Number.isFinite(value) ? value : 0;
+  };
+  const newestFirst = (a: ReportSummary, b: ReportSummary) =>
+    timestamp(b) - timestamp(a) || a.id.localeCompare(b.id);
+  let candidates = [...reports].sort(newestFirst);
+  if (filters.runs === "LATEST") {
+    const seen = new Set<string>();
+    candidates = candidates.filter((report) => {
+      const key = JSON.stringify([
+        report.pr.owner.toLowerCase(),
+        report.pr.repo.toLowerCase(),
+        report.pr.number,
+        report.mode,
+      ]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  const visible = filterReports(candidates, filters);
+  if (filters.sort === "OLDEST") {
+    visible.sort(
+      (a, b) => timestamp(a) - timestamp(b) || a.id.localeCompare(b.id),
+    );
+  } else if (filters.sort === "PRIORITY") {
+    visible.sort(
+      (a, b) => b.highFindings - a.highFindings || newestFirst(a, b),
+    );
+  }
+  return visible;
 }
 
 /** Live reruns return to a prefilled form; visiting this link makes no API call. */

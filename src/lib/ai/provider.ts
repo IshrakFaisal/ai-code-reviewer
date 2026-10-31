@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { CategoryRefinement } from "@/lib/analysis/categorizer";
+import type { TestContext } from "./test-context";
 import {
   categories,
   type PullRequest,
@@ -52,6 +53,7 @@ export interface AIProvider {
   generateVerificationPlan(
     pr: PullRequest,
     hypothesis: Hypothesis,
+    context: TestContext,
   ): Promise<GeneratedTest>;
   analyzeExecutionEvidence(
     hypothesis: Hypothesis,

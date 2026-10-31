@@ -8,9 +8,26 @@ vi.mock("@/lib/github/pull-request", () => ({
 vi.mock("@/lib/verification/runner", () => ({
   runLiveVerification: vi.fn().mockResolvedValue([]),
 }));
+vi.mock("@/lib/ai/test-context", () => ({
+  testContextLoader: () => async () => ({
+    headSha: "b".repeat(40),
+    files: [
+      {
+        path: "src/auth/session.ts",
+        sha: "c".repeat(40),
+        role: "source",
+        content: "export const signIn = () => database.save(session);",
+        truncated: false,
+      },
+    ],
+    limitations: [],
+  }),
+}));
 
 import { fetchPullRequest } from "@/lib/github/pull-request";
 import { investigate } from "@/lib/agent/investigator";
+import { runLiveVerification } from "@/lib/verification/runner";
+import type { InvestigationCheckpoint } from "@/lib/agent/checkpoint";
 
 const changedPath = "src/auth/session.ts";
 
@@ -130,10 +147,13 @@ function mockModel(invalidRefinement = false) {
       };
     } else if (task.startsWith("Generate one targeted"))
       result = {
-        filename: "session.test.ts",
-        framework: "vitest",
-        strategy: "Verify sign-in handles persistence failure.",
-        code: "// Test template only: repository execution is mocked in this test.",
+        plan: {
+          filename: "session.test.ts",
+          framework: "vitest",
+          strategy: "Verify sign-in handles persistence failure.",
+          code: "// Test template only: repository execution is mocked in this test.",
+        },
+        limitation: "",
       };
     else throw new Error(`Unexpected model task: ${task}`);
     return Response.json({
@@ -145,6 +165,52 @@ function mockModel(invalidRefinement = false) {
 }
 
 describe("live AI category refinement orchestration", () => {
+  it("resumes after generation with pinned data and no repeated inference, even if model credentials are now unavailable", async () => {
+    const { fetcher } = mockModel();
+    const controller = new AbortController();
+    let checkpoint: InvestigationCheckpoint | undefined;
+    const session = {
+      id: "d327444d-54b7-4407-b218-213f98c8c3a9",
+      persist: async (value: InvestigationCheckpoint) => {
+        checkpoint = value;
+      },
+    };
+    await expect(
+      investigate(
+        { input: "acme/platform", prNumber: 1 },
+        (event) => {
+          if (event.stage === 10) controller.abort();
+        },
+        controller.signal,
+        session,
+      ),
+    ).rejects.toThrow();
+    const count = fetcher.mock.calls.length;
+    expect(checkpoint!.values).toHaveProperty("test:finding-1");
+    vi.stubEnv("NEBIUS_API_KEY", "");
+    vi.stubEnv("NEBIUS_MODEL", "");
+    const report = await investigate(
+      { input: "acme/platform", prNumber: 1 },
+      undefined,
+      undefined,
+      { ...session, checkpoint },
+    );
+    expect(report.id).toBe(session.id);
+    expect(report.findings[0].generatedTest?.context?.headSha).toBe(
+      "b".repeat(40),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(count);
+    expect(fetchPullRequest).toHaveBeenCalledOnce();
+    expect(runLiveVerification).toHaveBeenCalledOnce();
+    const replay = await investigate(
+      { input: "acme/platform", prNumber: 1 },
+      undefined,
+      undefined,
+      { ...session, checkpoint },
+    );
+    expect(replay).toEqual(report);
+    expect(runLiveVerification).toHaveBeenCalledOnce();
+  });
   it("grounds and merges AI categories before hypotheses, scoring, and report construction", async () => {
     const { fetcher, observedHypothesisScores } = mockModel();
     const report = await investigate({ input: "acme/platform", prNumber: 1 });

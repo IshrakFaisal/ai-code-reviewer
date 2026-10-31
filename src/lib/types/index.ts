@@ -76,6 +76,11 @@ export interface GeneratedTest {
   code: string;
   strategy: string;
   framework: "vitest" | "node:test";
+  context?: {
+    headSha: string;
+    files: { path: string; sha: string; role: string; truncated: boolean }[];
+    limitations: string[];
+  };
 }
 export interface Hypothesis {
   title: string;
@@ -125,6 +130,7 @@ export interface AnalysisReport {
     level: RiskLevel;
     score: number;
     fileCount: number;
+    reasons?: string[];
     connected: Category[];
   }[];
   reviewSurface: {

@@ -9,7 +9,7 @@ An evidence-backed review workspace for public GitHub pull requests, built for t
 - Pause and resume investigations from saved checkpoints.
 - **Reproduce → Repair → Recheck:** compare the same test at base/head commits, propose a bounded repair, and rerun checks.
 - Save review decisions and notes, recover unsaved drafts, and follow a prioritized action plan.
-- Search history, compare reports, check GitHub revision freshness, and export reports, tests, evidence, and proposed patches.
+- Search history, compare reports, check GitHub revision freshness, and download PDF reports, with Markdown and JSON options. Export tests, evidence, and proposed patches separately.
 
 ## Run locally
 

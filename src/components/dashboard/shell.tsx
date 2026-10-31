@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { DraftProtectedLink as Link } from "@/components/report/draft-navigation";
 import { usePathname } from "next/navigation";
 import {
   ArrowUpRight,
@@ -8,7 +8,6 @@ import {
   ChevronRight,
   FileClock,
   FlaskConical,
-  GitPullRequest,
   LayoutGrid,
   Layers3,
   ScanLine,
@@ -41,19 +40,13 @@ export function Shell({
               ? "Analysis history"
               : pathname === "/analyze"
                 ? "Investigation"
-                : "Overview";
+                : "Review workspace";
   const navigation = [
     {
       href: "/",
-      label: "Overview",
+      label: "Review workspace",
       icon: LayoutGrid,
       active: pathname === "/",
-    },
-    {
-      href: "/#analyze",
-      label: "New analysis",
-      icon: GitPullRequest,
-      active: pathname === "/analyze",
     },
     {
       href: "/history",
@@ -68,8 +61,8 @@ export function Shell({
       label:
         item.label === "Analysis history"
           ? "History"
-          : item.label === "New analysis"
-            ? "Analyze"
+          : item.label === "Review workspace"
+            ? "Workspace"
             : item.label,
     })),
     {
