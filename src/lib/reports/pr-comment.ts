@@ -1,0 +1,191 @@
+import { riskLevel } from "@/lib/risk/engine";
+import type { AnalysisReport, Evidence } from "@/lib/types";
+import type { ReviewState } from "./review";
+import {
+  evidenceIdentity,
+  reportEvidence,
+  verificationGaps,
+} from "./verification-gaps";
+
+// Cap the encoded field, keeping each Markdown escape and HTML entity intact.
+function field(value: string, limit: number, code = false) {
+  const plain = value
+    .slice(0, limit + 1)
+    .replace(/[\p{Cc}\p{Cf}\s]+/gu, " ")
+    .trim()
+    .replace(/@/g, "＠")
+    .replace(/`/g, "ˋ")
+    .replace(/([a-z][a-z\d+.-]*):(?=\/\/)|\b(mailto):/gi, "$1$2：")
+    .replace(/\bwww\./gi, "www．")
+    .replace(/#(?=\d)/g, "＃")
+    .replace(/\bGH-(?=\d)/gi, "GH‑")
+    // GitHub also turns bare commit hashes into links outside code spans.
+    .replace(/\b[\da-f]{7,40}\b/gi, hash => code ? hash : hash.match(/.{1,6}/g)!.join("·"));
+  let result = "";
+  for (const char of plain) {
+    const escaped =
+      char === "&"
+        ? "&amp;"
+        : char === "<"
+          ? "&lt;"
+          : char === ">"
+            ? "&gt;"
+            : !code && (/[\\*_{}[\]()!|~$^#]/.test(char) ||
+                (!result && /[-+=:]/.test(char)) ||
+                (char === "." && /^\d+$/.test(result)))
+              ? "\\" + char
+              : char;
+    if (result.length + escaped.length > limit - 1) return result + "…";
+    result += escaped;
+  }
+  return result;
+}
+
+export function buildPrComment(
+  report: AnalysisReport,
+  reviews: ReviewState | null | undefined,
+  options: { maxFindings?: number } = {},
+): string {
+  const demo = report.mode === "DEMO";
+  const mode = demo
+    ? "Demo"
+    : report.provider === "Deterministic analysis"
+      ? "Live heuristics"
+      : "Live AI";
+  const isRun = (e: Evidence) =>
+    e.status !== "NOT_RUN" &&
+    (e.provenance === "EXECUTED" || (demo && e.provenance === "DEMO_FIXTURE"));
+  // A generated check belongs to its finding. Two findings can have identical
+  // results, while the demo also mirrors its results in the global checks.
+  const attached = report.findings.flatMap((f) =>
+    f.evidence.filter((e) => e.type === "Generated test"),
+  );
+  const mirrored = new Map<string, number>();
+  for (const e of attached) {
+    const id = evidenceIdentity(e);
+    mirrored.set(id, (mirrored.get(id) ?? 0) + 1);
+  }
+  const evidence = [
+    ...reportEvidence(report).filter((e) => e.type !== "Generated test"),
+    ...attached,
+    ...report.checks.filter((e) => {
+      if (e.type !== "Generated test") return false;
+      const id = evidenceIdentity(e);
+      const copies = mirrored.get(id) ?? 0;
+      if (!copies) return true;
+      mirrored.set(id, copies - 1);
+      return false;
+    }),
+  ];
+  const executed = evidence.filter(isRun);
+  const generated = executed.filter((e) => e.type === "Generated test");
+  const skipped = evidence.filter(
+    (e) => e.status === "NOT_RUN" && e.provenance !== "STATIC",
+  ).length;
+  const findings = [...report.findings].sort(
+    (a, b) => b.riskScore - a.riskScore,
+  );
+  const top = findings.slice(
+    0,
+    Math.max(1, Math.min(5, options.maxFindings || 5)),
+  );
+  const score = Math.max(
+    0,
+    ...report.pr.files.map((f) => f.risk.score),
+    findings[0]?.riskScore ?? 0,
+  );
+  const sha = field(report.pr.headSha, 65, true);
+  const sections = [
+    `### AI Change Verifier — PR #${report.pr.number} @ \`${sha.slice(0, 7)}\``,
+    `**Review priority: ${riskLevel(score)}** (score ${score}; priority, not defect probability) · ${mode} · Execution: ${executed.length ? executed.length + " checks" : "Not run"}` +
+      (demo ? " (bundled fixture only)" : ""),
+  ];
+  const changes = report.behaviors
+    .slice(0, 3)
+    .map((b) => "- " + field(b.description || b.title, 200));
+  if (changes.length)
+    sections.push(["**What changed**", ...changes].join("\n"));
+  if (top.length) {
+    const rows = top.map((f, i) => {
+      const label = f.evidence.some(isRun)
+        ? "Executed"
+        : f.evidence.some(
+              (e) => e.provenance === "STATIC" && e.status !== "NOT_RUN",
+            )
+          ? "Static analysis"
+          : "AI inference";
+      const ref = f.affectedFiles[0];
+      const where = ref
+        ? ` (\`${field(ref.path, 125, true)}${ref.startLine ? ":" + ref.startLine : ""}\`)`
+        : "";
+      return `${i + 1}. **${f.severity} · ${label}**: ${field(f.title, 115)}${where}. ${field(f.potentialImpact, 200)}`;
+    });
+    if (top.length < findings.length)
+      rows.push(
+        "",
+        `…and ${findings.length - top.length} more in the full report`,
+      );
+    sections.push(
+      [`**Top findings** (${top.length} of ${findings.length})`, ...rows].join(
+        "\n",
+      ),
+    );
+  }
+  if (executed.length || skipped) {
+    const count = (items: Evidence[], status: Evidence["status"]) =>
+      items.filter((e) => e.status === status).length;
+    const warnings = count(executed, "WARNING");
+    const rows = [
+      `- ${count(executed, "PASS")}/${executed.length} checks passed, ${count(executed, "FAIL")} failed, ${skipped} not run${warnings ? ", " + warnings + " warnings" : ""}`,
+    ];
+    if (evidence.some((e) => e.type === "Generated test"))
+      rows.push(
+        `- Generated tests: ${generated.length} run, ${count(generated, "FAIL")} failed. A failing generated test is a lead to inspect, not proof of a defect.`,
+      );
+    sections.push(["**Verification**", ...rows].join("\n"));
+  }
+  const gaps = verificationGaps(report);
+  const limitations = [
+    ...new Set([
+      ...(gaps.highRiskGaps
+        ? [
+            `${gaps.highRiskGaps} high-priority files lack linked repository execution.`,
+          ]
+        : []),
+      ...(report.reviewSurface.partial
+        ? ["The analyzed diff is partial."]
+        : []),
+      ...report.pr.warnings,
+      ...report.warnings,
+    ]),
+  ]
+    .filter(Boolean)
+    .slice(0, 3);
+  if (limitations.length)
+    sections.push(
+      [
+        "**Evidence gaps**",
+        ...limitations.map((s) => "- " + field(s, 180)),
+      ].join("\n"),
+    );
+  if (
+    findings.length &&
+    reviews?.reportId === report.id &&
+    reviews.headSha === report.pr.headSha
+  ) {
+    const counts = { NEEDS_FIX: 0, REVIEWED: 0, DISMISSED: 0, OPEN: 0 };
+    for (const f of findings)
+      counts[
+        Object.hasOwn(reviews.findings, f.id)
+          ? reviews.findings[f.id].status
+          : "OPEN"
+      ]++;
+    sections.push(
+      `**Reviewer status**: ${counts.NEEDS_FIX} needs fix · ${counts.REVIEWED} reviewed · ${counts.DISMISSED} dismissed · ${counts.OPEN} open`,
+    );
+  }
+  sections.push(
+    `<sub>Analysis of head \`${sha}\`, generated ${field(report.createdAt, 40)}. Re-run if the PR has new commits. Nothing here was posted automatically.</sub>`,
+  );
+  return sections.join("\n\n");
+}

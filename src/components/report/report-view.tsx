@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { DraftProtectedLink as Link } from "@/components/report/draft-navigation";
 import {
@@ -52,6 +52,8 @@ import {
 import { openReportTarget } from "./open-report-target";
 import { ReportSummary } from "./report-summary";
 import { ReportExports } from "./report-exports";
+import { CopyPrComment } from "./copy-pr-comment";
+import { buildPrComment } from "@/lib/reports/pr-comment";
 import {
   evidenceIdentity,
   reportEvidence,
@@ -361,6 +363,10 @@ export function ReportView({ report }: { report: AnalysisReport }) {
         ),
     )
     .slice(0, 5);
+  const comment = useMemo(
+    () => buildPrComment(report, checklist.review),
+    [report, checklist.review],
+  );
   if (!location) return null;
   return (
     <div className="page report-page">
@@ -369,13 +375,18 @@ export function ReportView({ report }: { report: AnalysisReport }) {
           <ArrowLeft size={14} />
           Workspace
         </Link>
-        <div>
+        <div className="flex-wrap">
           <span
             className={report.mode === "DEMO" ? "mode-badge" : "live-badge"}
           >
             {report.mode === "DEMO" ? "DEMO MODE" : "LIVE REPORT"}
           </span>
           <ReportExports report={report} />
+          <CopyPrComment
+            key={comment}
+            comment={comment}
+            hasDrafts={checklist.dirtyCount > 0}
+          />
         </div>
       </div>
       <div className="report-title">
