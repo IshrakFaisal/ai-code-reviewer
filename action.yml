@@ -1,5 +1,5 @@
 name: AI Change Verifier
-description: Review a public pull request and publish its evidence summary.
+description: Review a GitHub pull request and publish its evidence summary.
 inputs:
   github-token:
     description: GitHub Actions token for reading the PR and updating its comment.
@@ -12,6 +12,12 @@ inputs:
     default: 'none'
   strict:
     description: Fail the job when the review is unavailable.
+    default: 'false'
+  allow-private:
+    description: Allow the job token to read a private pull request.
+    default: 'false'
+  allow-private-ai:
+    description: Allow private pull request data to be sent to the configured inference provider. Requires allow-private.
     default: 'false'
   node-version:
     description: Node.js version for the review.
@@ -34,6 +40,8 @@ runs:
         NEBIUS_API_KEY: ${{ inputs.nebius-api-key }}
         REVIEW_FAIL_ON: ${{ inputs.fail-on }}
         REVIEW_STRICT: ${{ inputs.strict }}
+        REVIEW_ALLOW_PRIVATE: ${{ inputs.allow-private }}
+        REVIEW_ALLOW_PRIVATE_AI: ${{ inputs.allow-private-ai }}
         DEMO_MODE: 'false'
       run: |
         cd "$(mktemp -d)"

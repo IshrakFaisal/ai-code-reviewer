@@ -37,6 +37,8 @@ const commands = [
 ] as const;
 
 function requirePlan(report: AnalysisReport, finding: Finding) {
+  if (report.repository && report.repository.visibility !== "public")
+    throw new Error("Web reproduction and repair require a public repository.");
   if (
     report.mode !== "LIVE" ||
     !finding.generatedTest ||

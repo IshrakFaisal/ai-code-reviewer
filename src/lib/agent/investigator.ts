@@ -16,7 +16,15 @@ import { compareFindingPriority } from "@/lib/reports/finding-priority";
 import { testContextLoader } from "@/lib/ai/test-context";
 import { getConfig } from "@/lib/config";
 import { parseGitHubInput } from "@/lib/github/input";
-import { fetchPullRequest } from "@/lib/github/pull-request";
+import {
+  currentRepositoryVisibility,
+  fetchPullRequest,
+} from "@/lib/github/pull-request";
+import {
+  privateAiSkipped,
+  requireRepositoryAccess,
+  type PrivateRepositoryAccess,
+} from "@/lib/github/access";
 import {
   samplePullRequest,
   sampleHypotheses,
@@ -48,6 +56,7 @@ export async function investigate(
   onEvent: (event: AgentEvent) => unknown = () => {},
   signal?: AbortSignal,
   session?: InvestigationSession,
+  privateAccess?: PrivateRepositoryAccess,
 ): Promise<AnalysisReport> {
   const checkpoint = checkpointSteps(session);
   const fields = analysisReportSchema.shape;
@@ -88,15 +97,38 @@ export async function investigate(
     await onEvent(event);
     if (demo) await new Promise((resolve) => setTimeout(resolve, 180));
   };
-  const pr = await checkpoint.step("pullRequest", fields.pr, async () =>
+  const checkpointPr = fields.pr.safeExtend({
+    visibility: fields.repository.unwrap().shape.visibility.optional(),
+  });
+  const { visibility: savedVisibility, ...pr } = await checkpoint.step<
+    z.infer<typeof checkpointPr>
+  >("pullRequest", checkpointPr, async () =>
     demo
       ? samplePullRequest()
       : await fetchPullRequest(
           parseGitHubInput(input.input, input.prNumber),
           progress,
           signal,
+          privateAccess,
         ),
   );
+  const aiConfigured = Boolean(
+    process.env.NEBIUS_API_KEY && process.env.NEBIUS_MODEL,
+  );
+  let visibility = savedVisibility;
+  // Older checkpoints predate private access. Recheck a previously public
+  // repository before sending pinned data to inference on a new attempt.
+  if (
+    !demo &&
+    session?.checkpoint?.values.pullRequest &&
+    visibility !== "private" &&
+    aiConfigured
+  )
+    visibility = await currentRepositoryVisibility(pr, signal);
+  if (visibility) requireRepositoryAccess(visibility, privateAccess);
+  const privatePr = visibility === "private";
+  const aiBlocked = privatePr && !privateAccess?.allowAI;
+  if (aiBlocked && aiConfigured) pr.warnings.unshift(privateAiSkipped);
   if (demo) {
     await progress(0, "Loaded acme/platform · synthetic repository");
     await progress(1, `#${pr.number} · ${pr.title}`);
@@ -114,7 +146,7 @@ export async function investigate(
     ? "Deterministic demo provider"
     : "Deterministic analysis";
   let ai: NebiusProvider | undefined =
-    !demo && process.env.NEBIUS_API_KEY && process.env.NEBIUS_MODEL
+    !demo && aiConfigured && !aiBlocked
       ? new NebiusProvider(signal)
       : undefined;
   const defaultIntent = demo
@@ -142,11 +174,15 @@ export async function investigate(
           value: defaultIntent,
           provider,
           useAI: false,
-          warning: (error as Error).message,
+          warning: privatePr
+            ? "AI analysis unavailable for this private repository."
+            : (error as Error).message,
         };
       }
     },
   );
+  if (aiBlocked && intentResult.useAI)
+    throw new Error("Start a new static review for this private repository.");
   const intent = intentResult.value;
   provider = intentResult.provider;
   if (!intentResult.useAI) ai = undefined;
@@ -181,7 +217,11 @@ export async function investigate(
     if (result.warning) warnings.push(result.warning);
     return result;
   }
-  await progress(3, intent, "OBSERVE");
+  await progress(
+    3,
+    privatePr ? "Reviewed private pull request intent." : intent,
+    "OBSERVE",
+  );
   let categorySource = "path heuristics";
   if (intentResult.useAI) {
     const result = await optionalAI(
@@ -323,7 +363,9 @@ export async function investigate(
             return {
               plan: null,
               excerpts,
-              warning: `Test generation unavailable for ${f.title}: ${error instanceof Error ? error.message.slice(0, 2400) : "Insufficient repository context."}`,
+              warning: privatePr
+                ? "Test generation unavailable for a private finding."
+                : `Test generation unavailable for ${f.title}: ${error instanceof Error ? error.message.slice(0, 2400) : "Insufficient repository context."}`,
             };
           }
         },
@@ -353,7 +395,9 @@ export async function investigate(
     11,
     demo
       ? "Executing four assertions against the bundled password-reset fixture"
-      : "Checking execution availability, preparing the sandbox, and running repository verification",
+      : privatePr
+        ? "Recording static checks for this private repository"
+        : "Checking execution availability, preparing the sandbox, and running repository verification",
     "EXECUTE",
     "RUNNING",
   );
@@ -395,6 +439,16 @@ export async function investigate(
               "Requires repository context and external integration; not covered by the demo fixture.",
             ),
           );
+      } else if (privatePr) {
+        const reason =
+          "Private repository review does not run repository code.";
+        executionChecks.push(
+          ...["Build", "TypeScript", "Existing tests"].map((type) =>
+            notRun(type, reason),
+          ),
+        );
+        for (const finding of findings)
+          finding.evidence.push(notRun("Generated test", reason));
       } else {
         const saved = checkpoint.read(
           "verificationProgress",
@@ -518,6 +572,7 @@ export async function investigate(
     createdAt: settings.createdAt,
     mode: demo ? "DEMO" : "LIVE",
     provider,
+    repository: { visibility: visibility ?? "unknown" },
     pr,
     summary: intent,
     findings: findings.sort(compareFindingPriority),

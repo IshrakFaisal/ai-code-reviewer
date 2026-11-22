@@ -80,7 +80,7 @@ Keep `anchors.csv`, the comments, `index.md`, and `summary.json` closed until sc
 
 ## Limitations
 
-- Live retrieval accepts public GitHub PRs. The retriever rejects private repositories. Private-repository support is **not verified**.
+- The browser and evaluation harness accept public GitHub PRs only. The CLI and Action can review a private PR with an explicit opt-in and a token with read access. Sending private data to inference requires a second opt-in. A real private-repository run is **not verified**. [Private repositories](docs/INTEGRATIONS.md#private-repositories)
 - Live generated tests target isolated Node Vitest projects. Missing source, unsupported tooling, and incomplete diffs limit what can be checked.
 - Repository execution requires an enabled provider and an exact repository allowlist. The CLI does not turn execution on. The Action refuses inherited execution opt-ins.
 - One owner uses one Node process and persistent local filesystem storage. There is no database or distributed worker coordination.

@@ -6,7 +6,7 @@ Start from the project root. Copy the settings you need from [the environment te
 
 | Purpose | Settings and behavior |
 | --- | --- |
-| Public GitHub retrieval | Set `DEMO_MODE=false`. The server needs outbound access to GitHub's API. `GITHUB_TOKEN` is optional for public PRs and can raise the API rate limit. The retriever rejects private repositories. |
+| Public GitHub retrieval | Set `DEMO_MODE=false`. The server needs outbound access to GitHub's API. `GITHUB_TOKEN` is optional for public PRs and can raise the API rate limit. Browser analysis and the evaluation harness accept public repositories only. |
 | Optional inference | Set `NEBIUS_API_KEY` and `NEBIUS_MODEL` to an account-enabled model ID. The adapter checks the model catalog and validates structured responses. Live mode without a model uses deterministic analysis. |
 | Model endpoint and family | `NEBIUS_BASE_URL` selects the HTTPS inference endpoint. `NEBIUS_REQUIRE_NVIDIA` defaults to true and requires the NVIDIA namespace. Account access is **not verified**. |
 | Investigation budget | `MAX_INVESTIGATIONS` bounds the hypotheses selected. `RISK_WEIGHTS_JSON` accepts numeric overrides for recognized deterministic risk signals. |
@@ -26,7 +26,7 @@ npm run --silent review -- https://github.com/owner/repo/pull/123
 npm run --silent review -- --demo --format json --out report.json
 ```
 
-Markdown is the default output. `--format json` selects the full analysis. The run ID and progress go to stderr. `--quiet` suppresses progress. Use `--out` for UTF-8 output, particularly in Windows PowerShell 5.1 where `>` writes UTF-16. Ctrl+C or a CLI timeout requests a pause. Open the saved run from History before resuming.
+Markdown is the default output. `--format json` selects the full analysis. The run ID and progress go to stderr. `--quiet` suppresses progress. Use `--out` for UTF-8 output, particularly in Windows PowerShell 5.1 where `>` writes UTF-16. Ctrl+C or a CLI timeout requests a pause. Public runs can resume from History.
 
 | Exit | Meaning |
 | --- | --- |
@@ -38,9 +38,25 @@ Markdown is the default output. `--format json` selects the full analysis. The r
 
 The CLI reads the PR and prints or saves its output. It does not publish comments or enable execution. A separately configured execution provider still applies its repository gate. [CLI implementation](../scripts/review-cli.ts)
 
+## Private repositories
+
+For a static review, set `DEMO_MODE=false` and supply a `GITHUB_TOKEN` that can read the repository and PR. Run:
+
+```sh
+npm run --silent review -- https://github.com/owner/repo/pull/123 --allow-private
+```
+
+The equivalent Action input is `allow-private: 'true'`. Private PRs are opt-in for each invocation. If inference is configured, a private review without AI consent records “AI analysis skipped: private repository without --allow-private-ai” in CLI stderr, the PR comment and the Action summary.
+
+To send private data to the configured Nebius endpoint, also pass `--allow-private-ai` or set the Action input `allow-private-ai: 'true'`. Both Action inputs default to `'false'` and accept only `'true'` or `'false'`. Both permissions and the configured inference key and model are required for private AI.
+
+Inference receives the PR title, description, head SHA, changed paths, categories, risk scores and reasons, and bounded patches (up to 60 files and 75,000 patch characters). Test planning also sends the hypothesis, context limitations, and up to 12 excerpts of source, nearby tests, configuration, or dependencies from the pinned head, with file paths and blob metadata (60,000 excerpt characters total).
+
+Local reports and checkpoints in the git-ignored `.data/` directory contain private source excerpts. A full JSON export also contains patches. Private reviews do not execute repository code. A successful Action publishes the review summary in the job and, for same-repository PRs, in a sticky comment. Restart an interrupted private review from the CLI with the intended flags. A real private-repository run is **not verified**.
+
 ## GitHub Action
 
-Use the [consumer workflow snippet](../README.md#3-add-the-github-action) in a public repository. Pin the Action to a trusted full commit. The Action reads the pull request through GitHub's API and installs the verifier's own dependencies with lifecycle scripts disabled. It refuses inherited local or remote execution opt-ins. [Composite action](../action.yml)
+Use the [consumer workflow snippet](../README.md#3-add-the-github-action) for a public PR, or add the inputs above for a private PR. Pin the Action to a trusted full commit. The Action reads the pull request through GitHub's API and installs the verifier's own dependencies with lifecycle scripts disabled. It refuses inherited local or remote execution opt-ins. [Composite action](../action.yml)
 
 | Input | Effect |
 | --- | --- |

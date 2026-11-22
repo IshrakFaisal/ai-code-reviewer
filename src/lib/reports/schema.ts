@@ -53,6 +53,9 @@ export const analysisReportSchema = z
     createdAt: timestamp,
     mode: z.enum(["DEMO", "LIVE"]),
     provider: name,
+    repository: z
+      .object({ visibility: z.enum(["public", "private", "unknown"]) })
+      .optional(),
     pr: z
       .object({
         owner: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/),

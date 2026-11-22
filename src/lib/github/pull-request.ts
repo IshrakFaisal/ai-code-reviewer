@@ -1,25 +1,75 @@
 import { githubClient, githubError } from "./client";
+import {
+  RepositoryAccessError,
+  repositoryVisibility,
+  requireRepositoryAccess,
+  type PrivateRepositoryAccess,
+} from "./access";
 import { parseDiff } from "./diff";
 import { categorize } from "@/lib/analysis/categorizer";
 import { assessRisk } from "@/lib/risk/engine";
 import { configuredWeights } from "@/lib/risk/signals";
-import type { PullRequest } from "@/lib/types";
+import type { PullRequest, RepositoryVisibility } from "@/lib/types";
+
+function checkPullVisibility(
+  visibility: RepositoryVisibility,
+  pr: {
+    base: { repo: { private: boolean } | null };
+    head: { repo: { private: boolean } | null };
+  },
+  access?: PrivateRepositoryAccess,
+) {
+  if (pr.base.repo?.private) visibility = "private";
+  // Never publish private fork data in a public base's job summary.
+  if (visibility === "public" && pr.head.repo?.private)
+    throw new RepositoryAccessError(
+      "A private head cannot be reviewed in a public repository.",
+    );
+  requireRepositoryAccess(visibility, access);
+  return visibility;
+}
+
+export async function currentRepositoryVisibility(
+  ref: { owner: string; repo: string },
+  signal?: AbortSignal,
+) {
+  try {
+    const { data } = await githubClient().repos.get({
+      owner: ref.owner,
+      repo: ref.repo,
+      request: { signal },
+    });
+    return repositoryVisibility(data);
+  } catch (error) {
+    signal?.throwIfAborted();
+    throw githubError(error);
+  }
+}
+
 export async function fetchPullRequest(
   ref: { owner: string; repo: string; number: number },
   progress: (stage: number, detail: string) => Promise<void>,
   signal?: AbortSignal,
-): Promise<PullRequest> {
+  access?: PrivateRepositoryAccess,
+): Promise<PullRequest & { visibility?: RepositoryVisibility }> {
   const github = githubClient();
   const args = { owner: ref.owner, repo: ref.repo, request: { signal } };
   try {
     const { data: repository } = await github.repos.get(args);
-    if (repository.private) throw new Error("PRIVATE_REPO");
-    await progress(0, `${repository.full_name} · public repository`);
+    let visibility = repositoryVisibility(repository);
+    requireRepositoryAccess(visibility, access);
+    await progress(0, `${repository.full_name} · ${visibility} repository`);
     const { data: pr } = await github.pulls.get({
       ...args,
       pull_number: ref.number,
     });
-    await progress(1, `#${pr.number} · ${pr.title}`);
+    visibility = checkPullVisibility(visibility, pr, access);
+    await progress(
+      1,
+      visibility === "private"
+        ? `#${pr.number} · private pull request`
+        : `#${pr.number} · ${pr.title}`,
+    );
     const warnings: string[] = [];
     const files: PullRequest["files"] = [];
     for (let page = 1; page <= 5; page++) {
@@ -55,6 +105,7 @@ export async function fetchPullRequest(
     });
     if (latest.head.sha !== pr.head.sha || latest.base.sha !== pr.base.sha)
       throw new Error("PR_MOVED");
+    visibility = checkPullVisibility(visibility, latest, access);
     if (files.length < pr.changed_files)
       warnings.push(
         `Only ${files.length} of ${pr.changed_files} files analyzed (500-file cap).`,
@@ -72,6 +123,7 @@ export async function fetchPullRequest(
     );
     return {
       ...ref,
+      visibility,
       title: pr.title,
       description: (pr.body || "").slice(0, 12000),
       url: pr.html_url,
@@ -88,8 +140,7 @@ export async function fetchPullRequest(
     };
   } catch (error) {
     signal?.throwIfAborted();
-    if (error instanceof Error && error.message === "PRIVATE_REPO")
-      throw new Error("This MVP analyzes public repositories only.");
+    if (error instanceof RepositoryAccessError) throw error;
     if (error instanceof Error && error.message === "PR_MOVED")
       throw new Error(
         "The PR changed during retrieval. Retry to analyze a consistent revision.",

@@ -4,6 +4,7 @@ import { Writable } from "node:stream";
 import { Octokit } from "@octokit/rest";
 import { z } from "zod";
 import { parseGitHubInput } from "@/lib/github/input";
+import { privateAiSkipped, privateTokenRequired } from "@/lib/github/access";
 import { review } from "./review-cli";
 
 const marker = "<!-- ai-change-verifier:sticky -->";
@@ -11,10 +12,25 @@ const maxLength = 60000;
 const failOnSchema = z.enum(["none", "medium", "high"]);
 type ExitPolicy = { failOn: z.infer<typeof failOnSchema>; strict: boolean };
 
-export function readPolicy(env: Record<string, string | undefined>): ExitPolicy {
+class ActionInputError extends Error {}
+
+function booleanInput(value: string | undefined, name: string) {
+  if (value === undefined || value === "false") return false;
+  if (value === "true") return true;
+  throw new ActionInputError(`${name} must be true or false.`);
+}
+
+export function readPolicy(env: Record<string, string | undefined>) {
   const failOn = failOnSchema.parse(env.REVIEW_FAIL_ON ?? "none");
-  const strict = z.enum(["true", "false"]).parse(env.REVIEW_STRICT ?? "false");
-  return { failOn, strict: strict === "true" };
+  return {
+    failOn,
+    strict: booleanInput(env.REVIEW_STRICT, "strict"),
+    allowPrivate: booleanInput(env.REVIEW_ALLOW_PRIVATE, "allow-private"),
+    allowPrivateAI: booleanInput(
+      env.REVIEW_ALLOW_PRIVATE_AI,
+      "allow-private-ai",
+    ),
+  };
 }
 
 export function decideExit({
@@ -119,6 +135,11 @@ export async function runAction(
     throw new Error("Invalid GitHub pull request context.");
   const url = `${env.GITHUB_SERVER_URL}/${repository}/pull/${event.number}`;
   const { owner, repo, number } = parseGitHubInput(url);
+  if (policy.allowPrivate && !env.GITHUB_TOKEN?.trim()) {
+    process.stderr.write(privateTokenRequired + "\n");
+    await appendFile(summary, privateTokenRequired + "\n", "utf8");
+    return 1;
+  }
   const sameRepo =
     event.pull_request.head.repo?.full_name.toLowerCase() ===
     repository.toLowerCase();
@@ -133,14 +154,22 @@ export async function runAction(
     env.ENABLE_NEBIUS_SANDBOX !== "true"
   ) {
     cliExit = await runReview(
-      [url, "--fail-on", policy.failOn, "--quiet"],
+      [
+        url,
+        "--fail-on",
+        policy.failOn,
+        "--quiet",
+        ...(policy.allowPrivate ? ["--allow-private"] : []),
+        ...(policy.allowPrivateAI ? ["--allow-private-ai"] : []),
+      ],
       signal,
       {
         stdout: (text) => {
           comment += text;
           return true;
         },
-        stderr: () => true,
+        stderr: (line) =>
+          line === privateAiSkipped + "\n" ? process.stderr.write(line) : true,
       },
     );
   }
@@ -172,16 +201,6 @@ export async function runAction(
 }
 
 export async function main() {
-  const key = process.env.NEBIUS_API_KEY;
-  if (key)
-    process.stdout.write(
-      "::add-mask::" +
-        key
-          .replaceAll("%", "%25")
-          .replaceAll("\r", "%0D")
-          .replaceAll("\n", "%0A") +
-        "\n",
-    );
   // Third-party request diagnostics may contain raw headers or untrusted text.
   globalThis.console = new Console(
     new Writable({
@@ -196,9 +215,11 @@ export async function main() {
   process.once("SIGTERM", interrupt);
   try {
     return await runAction(process.env, stop.signal);
-  } catch {
+  } catch (error) {
     process.stderr.write(
-      "The PR review action could not complete. Check its configuration and GitHub permissions.\n",
+      error instanceof ActionInputError
+        ? error.message + "\n"
+        : "The PR review action could not complete. Check its configuration and GitHub permissions.\n",
     );
     return 1;
   } finally {

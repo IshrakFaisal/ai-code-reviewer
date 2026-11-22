@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { analysisRuns } from "@/lib/agent/runs";
 import { getConfig } from "@/lib/config";
 import { parseGitHubInput, requestSchema } from "@/lib/github/input";
+import { privateAiSkipped, privateTokenRequired } from "@/lib/github/access";
 import { getReport } from "@/lib/reports/store";
 import { buildPrComment, reportPriorityScore } from "@/lib/reports/pr-comment";
 import { riskLevel } from "@/lib/risk/engine";
@@ -14,6 +15,8 @@ function argumentsForReview(args: string[]) {
     options: {
       demo: { type: "boolean" },
       quiet: { type: "boolean" },
+      "allow-private": { type: "boolean" },
+      "allow-private-ai": { type: "boolean" },
       format: { type: "string", default: "comment" },
       out: { type: "string" },
       "fail-on": { type: "string", default: "none" },
@@ -62,6 +65,13 @@ export async function review(
     return 1;
   }
   const { values, input } = parsed;
+  const privateAccess = values["allow-private"]
+    ? { allowAI: values["allow-private-ai"] === true }
+    : undefined;
+  if (privateAccess && !process.env.GITHUB_TOKEN?.trim()) {
+    stderr(privateTokenRequired + "\n");
+    return 1;
+  }
   if (!input.demo && getConfig().demo) {
     stderr(
       "Demo mode is enabled. Set DEMO_MODE=false for a real PR or use --demo for the fixture.\n",
@@ -78,7 +88,7 @@ export async function review(
   stop.addEventListener("abort", cancel, { once: true });
   try {
     if (stop.aborted) return interrupt.aborted ? 130 : 2;
-    const job = await runs.start(input);
+    const job = await runs.start(input, undefined, { privateAccess });
     id = job.snapshot.id;
     stderr(`Run ${id}\n`);
     if (!values.quiet) stderr("Analyzing pull request…\n");
@@ -97,6 +107,11 @@ export async function review(
         ? await read(state.reportId)
         : null;
     if (!report) throw new Error();
+    if (
+      report.repository?.visibility === "private" &&
+      report.pr.warnings.includes(privateAiSkipped)
+    )
+      stderr(privateAiSkipped + "\n");
     const json = JSON.stringify(report);
     // Upstream report fields can include arbitrary text. Fail closed before
     // exporting any configured credential, including a JSON-escaped value.

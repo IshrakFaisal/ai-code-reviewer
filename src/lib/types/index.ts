@@ -123,11 +123,13 @@ export interface AgentEvent {
   at: string;
   phase?: string;
 }
+export type RepositoryVisibility = "public" | "private" | "unknown";
 export interface AnalysisReport {
   id: string;
   createdAt: string;
   mode: "DEMO" | "LIVE";
   provider: string;
+  repository?: { visibility: RepositoryVisibility };
   pr: PullRequest;
   summary: string;
   findings: Finding[];

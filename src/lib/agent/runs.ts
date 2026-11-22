@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { investigate } from "./investigator";
+import {
+  RepositoryAccessError,
+  type PrivateRepositoryAccess,
+} from "@/lib/github/access";
 import { saveReport } from "@/lib/reports/store";
 import { analysisRunStore } from "./run-store";
 import { summarizeRun, type UnfinishedRuns } from "./run-summary";
@@ -108,7 +112,12 @@ export class AnalysisRuns {
       });
     return this.snapshot(record);
   }
-  start(input: Input, id: string = randomUUID(), resume = false) {
+  start(
+    input: Input,
+    id: string = randomUUID(),
+    options: { resume?: boolean; privateAccess?: PrivateRepositoryAccess } = {},
+  ) {
+    const { resume, privateAccess } = options;
     return this.exclusive(async () => {
       runIdSchema.parse(id);
       const running = this.active.get(id);
@@ -161,13 +170,13 @@ export class AnalysisRuns {
         done: Promise.resolve(),
       };
       this.active.set(id, job);
-      job.done = this.work(job);
+      job.done = this.work(job, privateAccess);
       return { snapshot: this.snapshot(record), done: job.done };
     });
   }
   async resume(id: string) {
     const record = await this.get(id);
-    return this.start(record.input, id, true);
+    return this.start(record.input, id, { resume: true });
   }
   async pause(id: string) {
     await this.get(id);
@@ -176,7 +185,7 @@ export class AnalysisRuns {
       ?.controller.abort(new Error("Analysis paused by the reviewer."));
     return this.get(id);
   }
-  private async work(job: Job) {
+  private async work(job: Job, privateAccess?: PrivateRepositoryAccess) {
     const signal = AbortSignal.any([
       job.controller.signal,
       AbortSignal.timeout(this.deadlineMs),
@@ -186,19 +195,25 @@ export class AnalysisRuns {
       job.record = next;
     };
     try {
-      const report = await this.execute(job.record.input, () => {}, signal, {
-        id: job.record.id,
-        checkpoint: job.record.checkpoint,
-        persist: async (checkpoint) => {
-          signal.throwIfAborted();
-          await persist({
-            ...job.record,
-            checkpoint,
-            events: checkpoint.events,
-            updatedAt: new Date().toISOString(),
-          });
+      const report = await this.execute(
+        job.record.input,
+        () => {},
+        signal,
+        {
+          id: job.record.id,
+          checkpoint: job.record.checkpoint,
+          persist: async (checkpoint) => {
+            signal.throwIfAborted();
+            await persist({
+              ...job.record,
+              checkpoint,
+              events: checkpoint.events,
+              updatedAt: new Date().toISOString(),
+            });
+          },
         },
-      });
+        privateAccess,
+      );
       signal.throwIfAborted();
       if (report.id !== job.record.id)
         throw new Error("Analysis result identity does not match its run.");
@@ -219,10 +234,12 @@ export class AnalysisRuns {
           ? "Analysis paused. Resume to continue from the last saved checkpoint."
           : signal.aborted
             ? "This attempt reached its time limit. Resume from the last saved checkpoint."
-            : (error instanceof Error
-                ? error.message
-                : "Analysis failed."
-              ).slice(0, 5000),
+            : privateAccess && !(error instanceof RepositoryAccessError)
+              ? "Analysis failed."
+              : (error instanceof Error
+                  ? error.message
+                  : "Analysis failed."
+                ).slice(0, 5000),
       };
       job.record = failed;
       await this.store.save(failed).catch(() => {});

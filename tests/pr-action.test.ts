@@ -5,6 +5,7 @@ import { Octokit } from "@octokit/rest";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   decideExit,
+  main,
   readPolicy,
   runAction,
   upsertStickyComment,
@@ -140,7 +141,12 @@ afterEach(async () => {
   if (temp) await rm(temp, { recursive: true, force: true });
   temp = undefined;
 });
-async function invocation(fork: boolean, cliExit: Awaited<ReturnType<typeof review>>) {
+async function invocation(
+  fork: boolean,
+  cliExit: Awaited<ReturnType<typeof review>>,
+  inputs: Record<string, string> = {},
+  expectedFlags: string[] = [],
+) {
   temp = await mkdtemp(path.join(os.tmpdir(), "pr-action-"));
   const env = {
     GITHUB_EVENT_PATH: path.join(temp, "event.json"),
@@ -151,6 +157,7 @@ async function invocation(fork: boolean, cliExit: Awaited<ReturnType<typeof revi
     GITHUB_TOKEN: token,
     DEMO_MODE: "false",
     REVIEW_FAIL_ON: "high",
+    ...inputs,
   };
   await writeFile(
     env.GITHUB_EVENT_PATH,
@@ -169,6 +176,7 @@ async function invocation(fork: boolean, cliExit: Awaited<ReturnType<typeof revi
       "--fail-on",
       "high",
       "--quiet",
+      ...expectedFlags,
     ]);
     if (cliExit === 0 || cliExit === 3) io?.stdout?.("### Example review\n");
     return cliExit;
@@ -209,4 +217,68 @@ it("writes an unavailable summary for a non-strict CLI failure", async () => {
     reads: [],
     summary: "Review unavailable (CLI exit 2).\n",
   });
+});
+
+it.each([
+  ["false", "false", []],
+  ["true", "false", ["--allow-private"]],
+  ["false", "true", ["--allow-private-ai"]],
+  ["true", "true", ["--allow-private", "--allow-private-ai"]],
+] as const)(
+  "passes validated private inputs %s and %s to the CLI",
+  async (retrieval, inference, flags) => {
+    const result = await invocation(
+      false,
+      0,
+      { REVIEW_ALLOW_PRIVATE: retrieval, REVIEW_ALLOW_PRIVATE_AI: inference },
+      [...flags],
+    );
+    expect(result.code).toBe(0);
+  },
+);
+
+it.each([
+  ["REVIEW_ALLOW_PRIVATE", "allow-private"],
+  ["REVIEW_ALLOW_PRIVATE_AI", "allow-private-ai"],
+])(
+  "rejects invalid %s with one safe line at the Action entry point",
+  async (name, input) => {
+    vi.stubEnv(name, "bad\n" + token);
+    vi.stubEnv("NEBIUS_API_KEY", "fixture-key-for-output-check");
+    const previousConsole = globalThis.console;
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      expect(await main()).toBe(1);
+      expect(stdout).not.toHaveBeenCalled();
+      expect(stderr.mock.calls.map(([line]) => line)).toEqual([
+        input + " must be true or false.\n",
+      ]);
+    } finally {
+      globalThis.console = previousConsole;
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    }
+  },
+);
+
+it("declares both opt-ins false and references their values only in the composite step environment", async () => {
+  const manifest = (
+    await readFile(path.resolve("action.yml"), "utf8")
+  ).replaceAll("\r\n", "\n");
+  for (const [name, variable] of [
+    ["allow-private", "REVIEW_ALLOW_PRIVATE"],
+    ["allow-private-ai", "REVIEW_ALLOW_PRIVATE_AI"],
+  ]) {
+    expect(manifest).toContain("  " + name + ":\n");
+    const definition = manifest
+      .split("  " + name + ":\n")[1]
+      .split(/\n  \S/)[0];
+    expect(definition).toContain("default: 'false'");
+    const expression = "${{ inputs." + name + " }}";
+    expect(manifest.split(expression)).toHaveLength(2);
+    expect(manifest.split("      env:\n")[1].split("      run:")[0]).toContain(
+      variable + ": " + expression,
+    );
+  }
 });
