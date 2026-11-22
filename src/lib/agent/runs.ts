@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { investigate } from "./investigator";
 import { saveReport } from "@/lib/reports/store";
 import { analysisRunStore } from "./run-store";
+import { summarizeRun, type UnfinishedRuns } from "./run-summary";
 import {
   runIdSchema,
   runSnapshotSchema,
@@ -40,6 +41,58 @@ export class AnalysisRuns {
   private snapshot(record: RunRecord): RunSnapshot {
     return runSnapshotSchema.parse(record);
   }
+  async listUnfinishedRuns(): Promise<UnfinishedRuns> {
+    const result: UnfinishedRuns = { runs: [], unreadable: [] };
+    const observedJobs = new Map(this.active);
+    for (const { name, regular } of await this.store.filenames()) {
+      const id = name.slice(0, -5);
+      if (!regular || !runIdSchema.safeParse(id).success) {
+        result.unreadable.push(name);
+        continue;
+      }
+      let record;
+      try {
+        record = await this.store.get(id);
+      } catch {
+        result.unreadable.push(name);
+        continue;
+      }
+      if (!record) continue;
+      const job = this.active.get(id);
+      if (job) observedJobs.set(id, job);
+      if (observedJobs.has(id)) continue;
+      const summary = summarizeRun(record, false);
+      if (summary) result.runs.push(summary);
+    }
+    // Read each observed job's final in-memory state after the disk scan.
+    for (const [id, job] of this.active) observedJobs.set(id, job);
+    result.runs = result.runs.filter((run) => !observedJobs.has(run.runId));
+    for (const [id, job] of observedJobs) {
+      const summary = summarizeRun(job.record, this.active.has(id));
+      if (summary) result.runs.push(summary);
+    }
+    result.runs.sort(
+      (a, b) =>
+        Date.parse(b.updatedAt) - Date.parse(a.updatedAt) ||
+        a.runId.localeCompare(b.runId),
+    );
+    result.runs = result.runs.slice(0, 100);
+    result.unreadable.sort();
+    return result;
+  }
+  discard(id: string) {
+    return this.exclusive(async () => {
+      if (!runIdSchema.safeParse(id).success)
+        throw new RunError("Invalid analysis ID.", 400);
+      if (this.active.has(id))
+        throw new RunError(
+          "Pause the running analysis before discarding it.",
+          409,
+        );
+      if (!(await this.store.discard(id)))
+        throw new RunError("Analysis not found.", 404);
+    });
+  }
   async get(id: string) {
     if (!runIdSchema.safeParse(id).success)
       throw new RunError("Invalid analysis ID.", 400);
@@ -60,6 +113,7 @@ export class AnalysisRuns {
       runIdSchema.parse(id);
       const running = this.active.get(id);
       let record = running?.record ?? (await this.store.get(id));
+      if (resume && !record) throw new RunError("Analysis not found.", 404);
       if (
         record &&
         (record.input.input !== input.input ||

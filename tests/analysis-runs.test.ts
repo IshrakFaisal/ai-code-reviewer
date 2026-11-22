@@ -16,6 +16,12 @@ function memoryStore() {
   const records = new Map<string, RunRecord>();
   return {
     records,
+    filenames: async () =>
+      Array.from(records.keys(), (id) => ({
+        name: id + ".json",
+        regular: true,
+      })),
+    discard: async (id: string) => records.delete(id),
     get: vi.fn(async (id: string) => structuredClone(records.get(id) ?? null)),
     save: vi.fn(async (record: RunRecord) => {
       records.set(record.id, structuredClone(record));

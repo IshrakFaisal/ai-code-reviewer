@@ -1,4 +1,11 @@
-import { mkdir, open, rename, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  open,
+  readdir,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { runIdSchema, runRecordSchema, type RunRecord } from "./run-schema";
@@ -8,6 +15,26 @@ export function analysisRunStore(
 ) {
   const limit = 64 * 1024 * 1024;
   return {
+    async filenames() {
+      try {
+        return (await readdir(directory, { withFileTypes: true }))
+          .filter((entry) => entry.name.endsWith(".json"))
+          .map((entry) => ({ name: entry.name, regular: entry.isFile() }));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw error;
+      }
+    },
+    async discard(id: string) {
+      runIdSchema.parse(id);
+      try {
+        await unlink(path.join(directory, `${id}.json`));
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    },
     async get(id: string): Promise<RunRecord | null> {
       runIdSchema.parse(id);
       try {
