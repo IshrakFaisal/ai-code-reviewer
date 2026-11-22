@@ -32,9 +32,17 @@ const check = (
 it("summarizes the bundled demo without duplicating fixture checks", () => {
   const comment = output(demo);
   expect(comment).toContain(
-    "Demo · Execution: 4 checks (bundled fixture only)",
+    "Demo · Execution: 4 fixture assertions (bundled fixture only)",
   );
-  expect(comment).toContain("3/4 checks passed, 1 failed");
+  expect(comment).toContain("Bundled fixture assertions: 3/4 passed, 1 failed");
+  expect(comment).not.toContain("Generated test runs:");
+  expect(comment).toContain(
+    "Checks not run: Build, TypeScript, Existing tests, Generated test, +1 more.",
+  );
+  expect(comment).toContain("AI inference = model judgment, not verified.");
+  expect(comment).toContain(
+    `Analysis of head \`${demo.pr.headSha.slice(0, 7)}\`, generated ${demo.createdAt.slice(0, 10)}.`,
+  );
   expect(comment.length).toBeLessThanOrEqual(3500);
 });
 it("omits empty findings, behaviors and reviewer sections", () => {
@@ -73,7 +81,7 @@ it("reports attached static inspection despite a skipped execution", () => {
     check("EXECUTED", "NOT_RUN"),
   ];
   expect(output(report)).toContain("· Static analysis**");
-  expect(output(report)).toContain("0/0 checks passed, 0 failed, 1 not run");
+  expect(output(report)).toContain("Checks not run: Generated test.");
 });
 it("labels an attached failure as executed and retains the generated-test caveat", () => {
   const report = live();
@@ -83,7 +91,10 @@ it("labels an attached failure as executed and retains the generated-test caveat
   ];
   expect(output(report)).toContain("· Executed**");
   expect(output(report)).toContain(
-    "Generated tests: 1 run, 1 failed. A failing generated test is a lead to inspect, not proof of a defect.",
+    "Generated test runs: 0/1 passed, 1 failed.",
+  );
+  expect(output(report)).toContain(
+    "A failing generated test is a lead to inspect, not proof of a defect.",
   );
 });
 it("does not promote fixture results to live execution", () => {
@@ -99,7 +110,9 @@ it("counts identical skipped tests attached to distinct findings", () => {
     evidence: [check("EXECUTED", "NOT_RUN")],
   };
   report.findings = [finding, { ...finding, id: "other" }];
-  expect(output(report)).toContain("2 not run");
+  expect(output(report)).toContain(
+    "Checks not run: Generated test, Generated test.",
+  );
 });
 it("neutralizes mentions, HTML, links, images, control characters and code delimiters", () => {
   const report = live();
@@ -139,6 +152,7 @@ it("counts saved decisions only for this report and revision", () => {
     headSha: report.pr.headSha,
     findingIds: [report.findings[0].id],
   });
+  expect(buildPrComment(report, review)).not.toContain("Reviewer status");
   review.findings[report.findings[0].id].status = "NEEDS_FIX";
   expect(buildPrComment(report, review)).toContain(
     "1 needs fix · 0 reviewed · 0 dismissed · 0 open",

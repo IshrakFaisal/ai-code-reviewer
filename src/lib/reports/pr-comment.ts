@@ -20,7 +20,9 @@ function field(value: string, limit: number, code = false) {
     .replace(/#(?=\d)/g, "＃")
     .replace(/\bGH-(?=\d)/gi, "GH‑")
     // GitHub also turns bare commit hashes into links outside code spans.
-    .replace(/\b[\da-f]{7,40}\b/gi, hash => code ? hash : hash.match(/.{1,6}/g)!.join("·"));
+    .replace(/\b[\da-f]{7,40}\b/gi, (hash) =>
+      code ? hash : hash.match(/.{1,6}/g)!.join("·"),
+    );
   let result = "";
   for (const char of plain) {
     const escaped =
@@ -30,15 +32,24 @@ function field(value: string, limit: number, code = false) {
           ? "&lt;"
           : char === ">"
             ? "&gt;"
-            : !code && (/[\\*_{}[\]()!|~$^#]/.test(char) ||
-                (!result && /[-+=:]/.test(char)) ||
-                (char === "." && /^\d+$/.test(result)))
+            : !code &&
+                (/[\\*_{}[\]()!|~$^#]/.test(char) ||
+                  (!result && /[-+=:]/.test(char)) ||
+                  (char === "." && /^\d+$/.test(result)))
               ? "\\" + char
               : char;
     if (result.length + escaped.length > limit - 1) return result + "…";
     result += escaped;
   }
   return result;
+}
+
+export function reportPriorityScore(report: AnalysisReport) {
+  return Math.max(
+    0,
+    ...report.pr.files.map((f) => f.risk.score),
+    ...report.findings.map((f) => f.riskScore),
+  );
 }
 
 export function buildPrComment(
@@ -81,7 +92,7 @@ export function buildPrComment(
   const generated = executed.filter((e) => e.type === "Generated test");
   const skipped = evidence.filter(
     (e) => e.status === "NOT_RUN" && e.provenance !== "STATIC",
-  ).length;
+  );
   const findings = [...report.findings].sort(
     (a, b) => b.riskScore - a.riskScore,
   );
@@ -89,15 +100,11 @@ export function buildPrComment(
     0,
     Math.max(1, Math.min(5, options.maxFindings || 5)),
   );
-  const score = Math.max(
-    0,
-    ...report.pr.files.map((f) => f.risk.score),
-    findings[0]?.riskScore ?? 0,
-  );
+  const score = reportPriorityScore(report);
   const sha = field(report.pr.headSha, 65, true);
   const sections = [
     `### AI Change Verifier — PR #${report.pr.number} @ \`${sha.slice(0, 7)}\``,
-    `**Review priority: ${riskLevel(score)}** (score ${score}; priority, not defect probability) · ${mode} · Execution: ${executed.length ? executed.length + " checks" : "Not run"}` +
+    `**Review priority: ${riskLevel(score)}** (score ${score}; priority, not defect probability) · ${mode} · Execution: ${executed.length ? executed.length + (demo && generated.length === executed.length ? " fixture assertions" : " checks") : "Not run"}` +
       (demo ? " (bundled fixture only)" : ""),
   ];
   const changes = report.behaviors
@@ -113,7 +120,11 @@ export function buildPrComment(
               (e) => e.provenance === "STATIC" && e.status !== "NOT_RUN",
             )
           ? "Static analysis"
-          : "AI inference";
+          : demo
+            ? "Demo hypothesis"
+            : mode === "Live heuristics"
+              ? "Heuristic"
+              : "AI inference";
       const ref = f.affectedFiles[0];
       const where = ref
         ? ` (\`${field(ref.path, 125, true)}${ref.startLine ? ":" + ref.startLine : ""}\`)`
@@ -125,23 +136,43 @@ export function buildPrComment(
         "",
         `…and ${findings.length - top.length} more in the full report`,
       );
+    rows.push(
+      "",
+      "Executed = a check or test ran · Static analysis = rules applied to the diff · AI inference = model judgment, not verified.",
+    );
     sections.push(
       [`**Top findings** (${top.length} of ${findings.length})`, ...rows].join(
         "\n",
       ),
     );
   }
-  if (executed.length || skipped) {
-    const count = (items: Evidence[], status: Evidence["status"]) =>
-      items.filter((e) => e.status === status).length;
-    const warnings = count(executed, "WARNING");
-    const rows = [
-      `- ${count(executed, "PASS")}/${executed.length} checks passed, ${count(executed, "FAIL")} failed, ${skipped} not run${warnings ? ", " + warnings + " warnings" : ""}`,
-    ];
-    if (evidence.some((e) => e.type === "Generated test"))
+  if (executed.length || skipped.length) {
+    const rows: string[] = [];
+    function summarize(unit: string, items: Evidence[]) {
+      if (!items.length) return;
+      const count = (status: Evidence["status"]) =>
+        items.filter((e) => e.status === status).length;
       rows.push(
-        `- Generated tests: ${generated.length} run, ${count(generated, "FAIL")} failed. A failing generated test is a lead to inspect, not proof of a defect.`,
+        `- ${unit}: ${count("PASS")}/${items.length} passed, ${count("FAIL")} failed${count("WARNING") ? ", " + count("WARNING") + " warnings" : ""}.`,
       );
+    }
+    summarize(
+      "Repository checks",
+      executed.filter((e) => e.type !== "Generated test"),
+    );
+    summarize(
+      demo ? "Bundled fixture assertions" : "Generated test runs",
+      generated,
+    );
+    if (generated.some((e) => e.status === "FAIL"))
+      rows.push(
+        "- A failing generated test is a lead to inspect, not proof of a defect.",
+      );
+    if (skipped.length) {
+      const names = skipped.slice(0, 4).map((e) => field(e.type, 60));
+      if (skipped.length > 4) names.push("+" + (skipped.length - 4) + " more");
+      rows.push("- Checks not run: " + names.join(", ") + ".");
+    }
     sections.push(["**Verification**", ...rows].join("\n"));
   }
   const gaps = verificationGaps(report);
@@ -180,12 +211,13 @@ export function buildPrComment(
           ? reviews.findings[f.id].status
           : "OPEN"
       ]++;
-    sections.push(
-      `**Reviewer status**: ${counts.NEEDS_FIX} needs fix · ${counts.REVIEWED} reviewed · ${counts.DISMISSED} dismissed · ${counts.OPEN} open`,
-    );
+    if (counts.OPEN !== findings.length)
+      sections.push(
+        `**Reviewer status**: ${counts.NEEDS_FIX} needs fix · ${counts.REVIEWED} reviewed · ${counts.DISMISSED} dismissed · ${counts.OPEN} open`,
+      );
   }
   sections.push(
-    `<sub>Analysis of head \`${sha}\`, generated ${field(report.createdAt, 40)}. Re-run if the PR has new commits. Nothing here was posted automatically.</sub>`,
+    `<sub>Analysis of head \`${sha.slice(0, 7)}\`, generated ${field(report.createdAt.slice(0, 10), 11)}. Re-run if the PR has new commits. Nothing here was posted automatically.</sub>`,
   );
   return sections.join("\n\n");
 }
