@@ -1,30 +1,33 @@
-# Reproduce → Repair → Recheck demo
+# Walk through a demo investigation
 
-Keep the recording under three minutes. Clearly distinguish the live model connection, curated fixture execution, and any real repository execution. Never show credential values.
+Start the app with `npm run dev`, open [the local workspace](http://127.0.0.1:3000), and select **Run the demo**. The sample PR changes password recovery. Its findings are curated, and its verification step launches a local Node process against the bundled fixture.
 
-## Suggested sequence
+## From a finding to a comment
 
-1. **0:00–0:20 — Problem.** “A plausible review comment leaves developers asking whether a changed behavior actually fails. AI Change Verifier investigates that question with repeatable tests and scoped evidence.”
-2. **0:20–0:45 — Investigate.** Open a saved report and show a hypothesis, changed code, and the original evidence. Explain that standard head-only checks do not establish a regression.
-3. **0:45–1:25 — Reproduce.** Open **Reproduce & repair**. Run the base/head comparison. Show the identical test hash and both repeats at each revision: original PASS, changed FAIL. Expand the failing assertion. If using the bundled walkthrough, say explicitly: “These are real executions of deliberately constructed fixture variants, not a GitHub repository or AI-generated repair.”
-4. **1:25–2:00 — Repair and recheck.** Run the fixture repair, or the live model-generated repair when a real sandbox is configured. Show the unchanged test passing twice. For live execution, also show build, typecheck, existing tests, original source hashes, and the proposed patch. Explain that the app never changes the regression test to obtain a pass and never merges a change.
-5. **2:00–2:25 — Evidence.** Download the reproduction bundle. Show its exact commits, environment fingerprints, harness, test, instructions, and patch. Explain the limits of the claim: evidence supports the tested behavior, not complete safety.
-6. **2:25–2:50 — Evaluation and integration.** Show the five curated cases (three known regressions and two healthy changes) with measured runtime. Label this as a deterministic fixture evaluation, not model accuracy. Show the successful live NVIDIA/Nebius integration separately, or demonstrate an actual live PR workflow when configured.
+1. Follow the stages on the progress page. When the report opens, check the demo label, review priority, and execution summary.
+2. In **Findings**, open **Password reset token reuse**. In **Verification**, inspect the failed assertion: the fixture tries to reset a password twice with the same token and expects the second request to be rejected. Its output shows that the second request succeeded.
+3. In **Workbench**, inspect the reset handler's diff. **Change impact** identifies affected areas. **Evidence gaps** shows where repository execution is missing. A fixture result applies only to the bundled scenario.
+4. In **Your review**, enter a decision and note, then save. Compare **Next steps** with **Activity** to see planned reviewer work and recorded analysis stages. Saved decisions are separate from the underlying evidence.
+5. In the report header, open **Preview comment**, then choose **Copy PR comment**. Look for **Copied**. If clipboard access fails, use **Select all** and copy manually. The comment uses saved decisions and excludes unsaved drafts. Paste and publish it yourself if appropriate.
+6. Open **Reproduce & repair** on the token-reuse finding. Choose **Run base/head comparison**, inspect both repeats, then **Run fixture repair** and compare the same assertion again. **Evidence bundle (JSON)** downloads the recorded comparison. Both revisions and the repair in this walkthrough are curated.
 
-## Commands
+## Find a run after leaving the page
 
-```bash
-npm run dev
-npm run evaluate:regressions
-npm run verify:nebius
+Start another demo and select **Pause analysis** while it is running. If it finishes first, it appears among completed reports. Go to **History** and look above the completed reports for **Unfinished analyses**.
+
+| Action | What happens |
+| --- | --- |
+| **Open** | Returns to that run's progress page. Refreshing reconnects using the run ID. |
+| **Resume** | Continues a paused or interrupted run from its saved checkpoint. After a restart, History shows a checkpoint marked running as interrupted if this process has no active job for it. |
+| **Discard** | Asks for confirmation, then removes the inactive checkpoint. The discarded run can no longer resume. Pause an active run first. |
+
+The section appears when there are unfinished runs or unreadable checkpoints. A running row enables polling. Unreadable checkpoints are reported separately.
+
+## Try the same output in a terminal
+
+```sh
+npm run --silent review -- --demo
+npm run --silent review -- --demo --format json --out report.json
 ```
 
-`verify:nebius` makes a small, potentially billable inference request using the server configuration. It verifies catalog access and structured output, not review accuracy. A successful inference request does not enable repository execution.
-
-The fixture workflow starts at `/report/demo/reproduce/finding-1`, also linked from the overview. It needs no credentials. Live execution requires the Docker/Nebius enablement, an exact repository allowlist, and a supported Vitest project; live repair additionally requires inference credentials. Use the public repository and image actually tested rather than implying support for arbitrary repositories.
-
-## Submission language
-
-“AI Change Verifier turns pull-request risks into reproducible regression tests, then checks whether a proposed repair resolves the observed failure.”
-
-Current scope: one generated Vitest test per finding, repeated base/head execution with matching dependency environments, one bounded repair attempt, and explicit human review. Dependency-changing PRs, unsupported projects, and incomplete/unstable execution remain inconclusive. The original analysis and reviewer decisions remain unchanged.
+For a live report, use the [integration guide](INTEGRATIONS.md). Live findings distinguish verified locations, path-only locations, and unanchored citations. The PR comment lists eligible findings and counts unanchored omissions. The [validation record](VALIDATION.md) identifies which workflows were exercised.

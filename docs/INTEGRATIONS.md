@@ -1,120 +1,73 @@
-# Integration notes
+# Integration guide
 
-Official documentation checked during implementation (September 26–28, 2026). Account-level model access and hackathon eligibility still require confirmation with your own credentials.
+## Live analysis
 
-## Token Factory inference
+Start from the project root. Copy the settings you need from [the environment template](../.env.example) into a local `.env.local`, or supply them through the server environment. Keep credentials out of Git and restart the server after changing settings. The browser form accepts a public GitHub PR URL, or a repository and PR number.
 
-- [Official API reference](https://api.tokenfactory.nebius.com/docs)
-- [Official structured JSON guide](https://docs.tokenfactory.nebius.com/ai-models-inference/json)
-- [Official documentation index](https://docs.tokenfactory.nebius.com/llms.txt)
-- [Nebius model catalog access example](https://dev.nebius.com/cookbook/opencode-nebius-token-factory)
-- [Authenticated model catalog API](https://docs.tokenfactory.nebius.com/api-reference/models/list-models)
-- [NVIDIA Nemotron on Nebius](https://nebius.com/services/token-factory/nemotron)
+| Purpose | Settings and behavior |
+| --- | --- |
+| Public GitHub retrieval | Set `DEMO_MODE=false`. The server needs outbound access to GitHub's API. `GITHUB_TOKEN` is optional for public PRs and can raise the API rate limit. The retriever rejects private repositories. |
+| Optional inference | Set `NEBIUS_API_KEY` and `NEBIUS_MODEL` to an account-enabled model ID. The adapter checks the model catalog and validates structured responses. Live mode without a model uses deterministic analysis. |
+| Model endpoint and family | `NEBIUS_BASE_URL` selects the HTTPS inference endpoint. `NEBIUS_REQUIRE_NVIDIA` defaults to true and requires the NVIDIA namespace. Account access is **not verified**. |
+| Investigation budget | `MAX_INVESTIGATIONS` bounds the hypotheses selected. `RISK_WEIGHTS_JSON` accepts numeric overrides for recognized deterministic risk signals. |
+| Public web access | Configure an HTTPS `APP_ORIGIN`, `APP_AUTH_USERNAME`, and `APP_AUTH_PASSWORD` of at least 24 characters. The default local server binds to loopback. [Request checks](../src/lib/security.ts) |
 
-The adapter first calls authenticated `GET /v1/models` and validates the documented `{object: "list", data: [{id: ...}]}` response. The exact `NEBIUS_MODEL` must be present. NVIDIA `nvidia/` namespace selection is required unless the operator explicitly sets `NEBIUS_REQUIRE_NVIDIA=false`. This is model-family selection, not a claim of hackathon eligibility. The catalog check is cached for one provider instance/investigation.
+If retrieval fails, check outbound access to GitHub's API and the error reported by the server. Each read attempt has a 20-second deadline. The client retries transient read failures up to twice. A change to the base or head during retrieval requires a new analysis. [GitHub client](../src/lib/github/client.ts)
 
-Inference calls `POST https://api.tokenfactory.nebius.com/v1/chat/completions` using a bearer token and JSON-object mode. Task-specific Zod schemas validate every result, with one repair attempt. Redirects are refused so credentials cannot follow redirects to another origin. Not every model supports identical structured-output capabilities; use the credentialed validation command to check the selected model. `NEBIUS_MODEL` is mandatory and never silently replaced.
+The optional `npm run verify:nebius` makes a potentially billable model request. Credentialed inference is **not verified** in the [validation record](VALIDATION.md).
 
-Example model discovery (PowerShell, with your key already in the environment):
+## Command line
 
-```powershell
-$headers = @{ Authorization = "Bearer $env:NEBIUS_API_KEY" }
-$models = Invoke-RestMethod -Uri 'https://api.tokenfactory.nebius.com/v1/models' -Headers $headers
-$models.data | Where-Object { $_.id -match 'nvidia|nemotron' } | Select-Object id
+The CLI loads the environment and local `.env.local`, starts a resumable investigation, and uses the same report storage as the web app. Use npm's `--silent` option for clean stdout. Replace the example URL with the public PR you want to inspect.
+
+```sh
+npm run --silent review -- --demo
+npm run --silent review -- https://github.com/owner/repo/pull/123
+npm run --silent review -- --demo --format json --out report.json
 ```
 
-Do not paste the key into the UI or commit `.env.local`. The provider's structured methods can be swapped behind `AIProvider`; the shipped implementation always identifies itself as Nebius.
+Markdown is the default output. `--format json` selects the full analysis. The run ID and progress go to stderr. `--quiet` suppresses progress. Use `--out` for UTF-8 output, particularly in Windows PowerShell 5.1 where `>` writes UTF-16. Ctrl+C or a CLI timeout requests a pause. Open the saved run from History before resuming.
 
-The included script loads `.env.local`: `node scripts/verify-nebius.mjs --list` lists accessible NVIDIA IDs without inference, and `npm run verify:nebius` performs one small structured completion (potentially billable). It reports only model IDs and validation outcomes, never credentials or raw upstream errors. Without a key it exits with an actionable configuration error.
+| Exit | Meaning |
+| --- | --- |
+| 0 | Review completed below the selected failure threshold, or the threshold is disabled. |
+| 1 | Invalid input, configuration, or output error. |
+| 2 | Analysis failed, paused, or timed out. |
+| 3 | Review priority met `--fail-on medium` or `--fail-on high`. The default is `none`. |
+| 130 | Interrupted by Ctrl+C. |
 
-AI category refinements are grounded to the supplied changed-file context and add to heuristic categories. They cannot remove risk signals or reclassify production files as tests. Scores are recalculated using existing deterministic weights before hypotheses are selected. Failed refinement leaves heuristic results intact.
-
-## Docker and native execution
-
-`SandboxProvider` is now selected through `src/lib/sandbox/factory.ts`. `SANDBOX_PROVIDER=docker` uses Docker Desktop Linux containers on Windows or a Linux-container engine on other supported hosts. The image must already be pulled (`docker pull node:22-bookworm`); its local immutable ID is used for creation. Set `ENABLE_LOCAL_SANDBOX=true` and list exact trusted public repositories in `LOCAL_SANDBOX_REPOSITORIES`. Production additionally requires `ENABLE_PRODUCTION_SANDBOX=true` and a correctly protected deployment.
-
-No repository or Docker socket from the host is mounted into the container. The non-root process has a read-only root, bounded scratch storage, dropped capabilities, no-new-privileges, and CPU/memory/PID limits. Clone/install uses network access with package lifecycle scripts disabled. Before verification the provider disconnects the network and verifies that no network remains. Application secrets are excluded. Root npm, pinned pnpm and pinned Yarn projects are supported; dependency acquisition can fail if offline, unsupported, or larger than the resource limits. Generated Vitest checks use dedicated configuration and JSON output; missing assertions and runtime errors cannot become a verified pass.
-
-Run `npm run test:sandbox` on a Docker-enabled host to validate real container creation, file boundaries, execution, and cleanup. The normal suite uses subprocess contract tests and skips actual container tests when not explicitly enabled. Native execution remains development-only for fully trusted repositories; it does not isolate the host and refuses native Windows.
-
-Docker's [security documentation](https://docs.docker.com/engine/security/) and [rootless mode guidance](https://docs.docker.com/engine/security/rootless/) describe the remaining daemon/kernel boundary. Use a dedicated disposable worker/VM for repository execution. Container constraints and owner authentication do not make this a hostile multitenant service.
-
-## Nebius remote execution
-
-The **Reproduce & repair** workflow uses the same provider gate and repository allowlist. It prepares separate immutable base/head checkouts, compares matching environment fingerprints, and runs the same generated Vitest source twice per revision. A subsequent repair request confirms the head failure, calls the configured Nebius model for a bounded source replacement, and runs unchanged assertions plus repository checks. Source writes are limited to supplied existing application files with matching SHA-256 hashes; test/configuration paths and symlink/hardlink files are rejected. Native execution is not offered for this workflow. No GitHub write integration is added.
-
-The bundled reproduction/repair walkthrough does not invoke this remote provider. Its five-case evaluation is curated fixture execution, not live model evaluation. Use a supported public repository and explicit execution settings to validate account/image compatibility end to end.
-
-- [Official sandbox overview](https://docs.tokenfactory.nebius.com/sandboxes/overview)
-- [Sandbox authentication and image listing](https://docs.tokenfactory.nebius.com/api-reference/sandboxes/images/list-publicly-available-images)
-- [Create an execution operation](https://docs.tokenfactory.nebius.com/api-reference/sandboxes/instances/spawn-a-new-container-instance)
-- [Read operation status and results](https://docs.tokenfactory.nebius.com/api-reference/sandboxes/operations/get-an-operation-status)
-- [Cancel an operation](https://docs.tokenfactory.nebius.com/api-reference/sandboxes/operations/cancel-an-operation)
-- [Import an OCI image](https://docs.tokenfactory.nebius.com/api-reference/sandboxes/images/import-a-container-image-from-a-registry)
-- [ConTree image setup guide](https://docs.tokenfactory.nebius.com/sandboxes/cli/tutorial/images)
-
-`src/lib/sandbox/nebius.ts` implements `SandboxProvider` through the REST API. It uses server-configured `NEBIUS_SANDBOX_BASE_URL`, defaulting to `https://api.tokenfactory.nebius.com/sandboxes`. It needs no local Docker daemon or Python SDK. Credentials are a Nebius IAM bearer token (`NEBIUS_SANDBOX_TOKEN`) and project ID (`NEBIUS_SANDBOX_PROJECT_ID`, sent as the `Project` header). Inference settings do not automatically configure sandbox access.
-
-### Setup
-
-1. Enable sandbox access for your Nebius project and obtain an IAM token with the required project permissions. This is an account prerequisite; creating an API adapter does not grant service access.
-2. Import a trusted Linux image into that project using Nebius's documented tooling. It must contain Node 22 or newer, git, npm, and Corepack when using pnpm/Yarn. `/tmp` must be writable by UID/GID 1000; the adapter creates a unique `/tmp/change-verifier-UUID` workspace. Images must contain no credentials or private source. Importing an OCI image is an operator action; the application never imports or retags images.
-3. Set `NEBIUS_SANDBOX_IMAGE` to the imported image's immutable UUID. A Docker image name or mutable ConTree tag is not accepted.
-4. Set `SANDBOX_PROVIDER=nebius`, `ENABLE_NEBIUS_SANDBOX=true`, and an exact comma-separated public `OWNER/REPO` allowlist in `NEBIUS_SANDBOX_REPOSITORIES`. Configure the token and project ID in `.env.local` or the server secret store. Production also requires `ENABLE_PRODUCTION_SANDBOX=true` and the normal public-origin/owner-authentication configuration.
-5. Set `DEMO_MODE=false` and restart the app. Analyze an allowlisted public pull request. Execution and dependency failures remain visible in the report; missing configuration never produces demo evidence or a fabricated pass.
-
-### Execution and lifecycle
-
-The adapter creates operations with `POST /instances`, polls `GET /operations/{id}`, and uses `DELETE /operations/{id}` to request cancellation. It advances the workspace through returned checkpoints. Commands run with explicit argument arrays, a minimal environment, a non-root UID/GID, and time/output limits. Authentication headers stay in the application process and are never forwarded into repository commands. Redirects and malformed service responses fail closed.
-
-Clone and dependency installation enable networking. Clone checks out and confirms the exact analyzed `headSha`; dependency acquisition uses the existing controlled npm/pnpm/Yarn plans with lifecycle scripts disabled. All verification operations explicitly disable networking. The adapter supports the same root Node project and Vitest 3.2+/4 boundaries as local execution. Generated files and result reads retain path/symlink, size and stale-report checks. Live assertion failures remain `INCONCLUSIVE` until assessed; a failed generated test alone cannot establish a product defect.
-
-Cleanup cancels active operations and clears local handles. This is **not remote data deletion**: state-producing commands create checkpoint images. The public API documents operation cancellation and image tagging but does not document immediate checkpoint erasure. The beta [retention policy](https://docs.tokenfactory.nebius.com/sandboxes/overview) is currently 180 days, after which Nebius may remove untagged, unreferenced images. The adapter creates no tags. Only public repositories are accepted, and execution opt-in should account for remote checkpoint retention and service billing.
-
-Run `npm run test:nebius-sandbox` after configuring the three required sandbox values in `.env.local`. This opt-in test uses billable remote execution: it checks the image toolchain, non-root execution, checkpoint file persistence, disabled networking, nonzero exits, and cancellation. It creates one tiny public smoke-test checkpoint subject to Nebius retention; it does not upload project files or clone a repository. Missing configuration fails before any API request. Normal `npm test` skips this live check.
-
-Contract tests exercise HTTP payloads, operation completion/failure/cancellation, credential isolation, and checkpoint handling. Live inference and sandbox requests were not validated with account credentials on the implementation host. Validate the configured image and account before relying on execution results in a deployment. Remote checks rely on Nebius's service isolation; application access control remains the single-owner boundary described in the README. If a submission response is lost before its operation ID arrives, the client cannot address that operation for cancellation; its server-side execution deadline remains the backstop. No automatic submission retries can duplicate billable operations.
-
-## GitHub
-
-The app uses Octokit REST methods for repository metadata, pull request metadata, and paginated files. It is read-only. Public repositories only are accepted even if a configured token could read private repositories. The UI supports full PR URLs, `OWNER/REPO` with a number, or a repository URL with a number. GitHub 401/403/404/429 and network failures receive actionable messages. A second metadata read checks that base/head revisions did not change while file pages were fetched.
-
-GitHub connections use a fresh 20-second abort signal for each attempt, combined with analysis cancellation. The installed Octokit native fetch transport does not implement the older `request.timeout` option. Read requests retry transient transport failures and HTTP 408/500/502/503/504 at most twice, after 250 ms and 500 ms; persistent DNS/permission errors, authentication/access errors, missing PRs and rate limits are not repeatedly requested. DNS, server permission, timeout, upstream availability and exhausted rate limits receive distinct messages. Error messages never echo raw transport errors or credentials.
-
-The app server must have outbound access to `api.github.com:443`. If a restricted coding-agent process prevents networking, launch the app from a regular terminal as described in the README. `GITHUB_TOKEN` is optional for public PRs and does not override network restrictions.
-
-The web app and CLI use read-only GitHub access. The optional Action below also publishes a PR comment.
+The CLI reads the PR and prints or saves its output. It does not publish comments or enable execution. A separately configured execution provider still applies its repository gate. [CLI implementation](../scripts/review-cli.ts)
 
 ## GitHub Action
 
-Use a trusted, published commit of this repository in a workflow in the repository being reviewed:
+Use the [consumer workflow snippet](../README.md#3-add-the-github-action) in a public repository. Pin the Action to a trusted full commit. The Action reads the pull request through GitHub's API and installs the verifier's own dependencies with lifecycle scripts disabled. It refuses inherited local or remote execution opt-ins. [Composite action](../action.yml)
 
-```yaml
-name: Review
-on: pull_request
-permissions:
-  contents: read
-  pull-requests: write
-concurrency:
-  group: review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: IshrakFaisal/ai-code-reviewer@<full-commit-sha>
-        env:
-          NEBIUS_MODEL: ${{ vars.NEBIUS_MODEL }}
-        with:
-          nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
-```
+| Input | Effect |
+| --- | --- |
+| `github-token` | Defaults to the job token. Grant contents read and pull requests write for same-repository comments. Use the default bot identity. |
+| `nebius-api-key` | Optional inference secret. If supplied, set `NEBIUS_MODEL` in the step environment. Limit access to trusted events. |
+| `fail-on` | Accepts `none`, `medium`, or `high`. A threshold failure is reported after the successful review is published. |
+| `strict` | Defaults to false. A CLI error writes an unavailable summary. Strict mode also fails the job on that error. Publication errors fail the job. |
+| `node-version` | Selects the Node version used to run the verifier. Defaults to 24. |
 
-The review reads the PR through GitHub's API and never executes the reviewed project's code or tests.
-This repository's own workflow checks out the PR head to run the Action implementation from source. That code runs with the step's permissions, so same-repository PR authors must be trusted. Same-repo PRs receive a job summary and one marker-tagged Bot comment, updated in place. Fork PRs use the read-only token and receive the summary only.
+A successful same-repository review updates the existing marker-tagged bot comment or creates it on the first run. A fork review writes only the job summary. The [project's own workflow](../.github/workflows/pr-review.yml) runs the implementation from the PR head, so same-repository contributors must be trusted. It withholds the inference secret from forks. Real GitHub Actions publication is **not verified**. [Publisher](../scripts/pr-action.ts)
 
-`github-token` defaults to the job's `github.token`. Use the default Bot identity. Personal access token identities are unsupported in v1. Private-repository PRs are unverified; the current reviewer requires a public repository.
+## Repository execution
 
-`node-version` defaults to 24. The Action installs dev dependencies with lifecycle scripts disabled. With no `nebius-api-key`, reviews use static analysis and deterministic heuristics. To enable potentially billable inference, provide the key and an account-enabled model ID in `NEBIUS_MODEL`. There is no additional Action spending cap.
+Leave `SANDBOX_PROVIDER=disabled` for a review that only reads GitHub. For execution, a provider must be enabled **and** the public repository must match an exact entry in its comma-separated allowlist.
 
-`fail-on` accepts `none` (default), `medium`, or `high`. Meeting the threshold fails the job after publication. `strict` defaults to `false`: CLI errors produce a one-line unavailable summary; set it to `true` to also fail the job. Publication errors fail the job.
+| Provider | Required operator configuration |
+| --- | --- |
+| Docker | `SANDBOX_PROVIDER=docker`, `ENABLE_LOCAL_SANDBOX=true`, and `LOCAL_SANDBOX_REPOSITORIES`. `SANDBOX_DOCKER_IMAGE` selects the pre-pulled Linux image. [Windows setup](DOCKER-WINDOWS.md) |
+| Native development | `SANDBOX_PROVIDER=native` uses the same local enable flag and allowlist. It runs trusted code on the host, requires development mode and refuses native Windows. Paired reproduction requires Docker or Nebius. |
+| Nebius remote | `SANDBOX_PROVIDER=nebius`, `ENABLE_NEBIUS_SANDBOX=true`, `NEBIUS_SANDBOX_REPOSITORIES`, an IAM `NEBIUS_SANDBOX_TOKEN`, `NEBIUS_SANDBOX_PROJECT_ID`, and an imported image UUID in `NEBIUS_SANDBOX_IMAGE`. `NEBIUS_SANDBOX_BASE_URL` selects the service endpoint. |
+
+Production execution also requires `ENABLE_PRODUCTION_SANDBOX=true` with Docker or Nebius. The [provider gate](../src/lib/sandbox/factory.ts) checks the process mode and repository. Docker and Nebius use networking for clone/install and disable it for verification. The remote adapter uses checkpoint images. Cancellation releases local handles and requests cancellation of active operations. Remote retention and immediate deletion are **not verified**.
+
+For paired reproduction, the verifier runs the same test twice at both pinned revisions. The package manifest, lockfile, installed Vitest, runtime and image fingerprints must match. A live repair also needs model inference. It rechecks the original head failure, limits proposed edits to existing application source, then reruns the same assertions and repository checks. Download the proposed patch and evidence for human review. [Paired workflow](../src/lib/regression/workflow.ts)
+
+The opt-in `npm run test:sandbox` and `npm run test:nebius-sandbox` require their respective infrastructure. The latter can incur charges. Live sandbox operation is **not verified** in this pass.
+
+## Evaluation
+
+Use the [sampling and scoring commands](../README.md#evaluation) to produce a local `eval-output/` directory. The harness disables repository execution during review. Open the source PRs and blind label sheets first. The scored output is meaningful only for the labeled sample. [Harness](../scripts/eval.ts) · [Scorer](../scripts/eval-score.ts)

@@ -1,119 +1,92 @@
 # AI Change Verifier
 
-An evidence-backed review workspace for public GitHub pull requests, built for the **Nebius × NVIDIA Global AI Hackathon**. Identify risky changes, inspect test evidence, and review proposed repairs.
+AI Change Verifier reviews a public GitHub pull request at recorded base and head commits. It ranks changes for human review and shows how each finding was reached. Reviewers can inspect the diff, check execution evidence, save decisions, and prepare a PR comment.
 
-## Features
+## Quick starts
 
-- Analyze PR diffs, behavioral changes, affected systems, and explainable risk scores.
-- Inspect changed files, findings, generated tests, execution output, and verification gaps in one workbench.
-- Pause and resume investigations from saved checkpoints.
-- **Reproduce → Repair → Recheck:** compare the same test at base/head commits, propose a bounded repair, and rerun checks.
-- Save review decisions and notes, recover unsaved drafts, and follow a prioritized action plan.
-- Search history, compare reports, check GitHub revision freshness, and download PDF reports, with Markdown and JSON options. Export tests, evidence, and proposed patches separately.
+The [CI workflow](.github/workflows/ci.yml) uses Node.js 22 and the [Action](action.yml) defaults to Node.js 24. For the browser and CLI, start at the project root. On a fresh clone, use npm’s `ci` subcommand to install the lockfile dependencies, including development tools.
 
-## Run locally
+### 1. Run the demo in a browser
 
-Requires **Node.js 22.13+ or 24 LTS** and npm.
-
-```bash
-npm ci
+```sh
 npm run dev
 ```
 
-Open **http://127.0.0.1:3000** and select **Run the demo**. The demo uses a synthetic PR and real bundled fixture execution; no API key, Docker, or database is required.
+Open [the local app](http://127.0.0.1:3000) and select **Run the demo**. It loads a synthetic password-reset PR and executes bundled assertions locally. You can try it without GitHub, a model key, or a sandbox provider. Follow the [walkthrough](docs/DEMO.md) to inspect the token-reuse failure.
 
-## Live configuration
-
-Copy [`.env.example`](.env.example) to `.env.local`. To enable real GitHub analysis with AI:
-
-```dotenv
-DEMO_MODE=false
-NEBIUS_API_KEY=your-nebius-api-key
-NEBIUS_MODEL=your-available-nvidia-model-id
-```
-
-Use the exact NVIDIA model ID available in your Nebius account. Restart the app after configuration changes. Keep `.env.local` and credentials out of Git.
-
-| Capability                                         | Requirements                                                                      |
-| -------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Public GitHub analysis without AI                  | `DEMO_MODE=false` and network access; `GITHUB_TOKEN` is optional.                 |
-| AI analysis, test generation, and repair proposals | Nebius inference key and an available NVIDIA model.                               |
-| Real repository test execution                     | Configured Docker or Nebius sandbox and an explicit trusted-repository allowlist. |
-
-An inference key alone does not enable repository execution. See [Windows Docker setup](docs/DOCKER-WINDOWS.md) and [integration configuration](docs/INTEGRATIONS.md).
-
-## Command line
-
-For automated PR summaries and a sticky review comment, see the [GitHub Action setup](docs/INTEGRATIONS.md#github-action).
-
-Run from the project root after `npm ci`. The CLI reads the environment and
-`.env.local` and saves reports in the same `.data/` store as the web app.
-
-```bash
-npm run --silent review -- --demo
-npm run --silent review -- https://github.com/OWNER/REPO/pull/123
-npm run --silent review -- --demo --format json --out report.json
-```
-
-Use `DEMO_MODE=false` for real PRs. `--demo` always selects the bundled fixture.
-Stdout contains Markdown by default or JSON with `--format json`. Progress and
-the run ID go to stderr. `--quiet` suppresses progress. Windows PowerShell 5.1
-writes UTF-16 with `>` redirection. Use `--out <file>` for UTF-8 without BOM.
-
-For CI, set `DEMO_MODE=false` and supply the public PR URL:
+### 2. Print a demo PR comment
 
 ```sh
-npm ci
-npm run --silent review -- "$PR_URL" --fail-on high --out review.md
+npm run --silent review -- --demo
 ```
 
-`--fail-on` accepts `none` (default), `medium`, or `high`. Exit codes are
-0 for success, 1 for usage or configuration, 2 for failed, timed-out or paused
-analysis, 3 for meeting the review-priority threshold, and 130 for Ctrl+C.
+The CLI writes the comment to stdout and the run ID and progress to stderr. Add `--format json --out report.json` to save the full report as UTF-8. See the [CLI options and exit codes](docs/INTEGRATIONS.md#command-line).
+
+### 3. Add the GitHub Action
+
+In the repository being reviewed, save this workflow under `.github/workflows/`. Replace `<trusted-full-commit-sha>` with an immutable revision of this action that you trust.
+
+```yaml
+name: Review pull request
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: change-verifier-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: IshrakFaisal/ai-code-reviewer@<trusted-full-commit-sha>
+```
+
+With the default inputs, the Action uses heuristics. A successful review writes a job summary and creates or updates one bot comment on a same-repository PR. Fork PRs receive the summary only. [Action inputs and publication policy](docs/INTEGRATIONS.md#github-action)
+
+## Features
+
+| To do this | Start here |
+| --- | --- |
+| Analyze a live PR using its diff and optional Nebius inference | Set `DEMO_MODE=false`, then use the form in `npm run dev` or pass the public PR URL to `npm run --silent review --`. [Configuration](docs/INTEGRATIONS.md#live-analysis) |
+| Inspect a finding and decide what to share | In the browser report, use **Findings**, **Workbench**, and **Verification**. Save a decision in **Your review**, then use **Preview comment** or **Copy PR comment**. PDF, Markdown, and JSON downloads are also available. |
+| Recover an investigation | In **History → Unfinished analyses**, open a run, resume a paused or interrupted run, or confirm discard of an inactive checkpoint. History also supports searching and comparing completed reports. |
+| Compare behavior at base and head | Select **Reproduce & repair** on a finding with a supported test. The demo has a curated repair. Live paired runs require a configured Docker or Nebius provider. [Walkthrough](docs/DEMO.md) |
+| Evaluate findings against human labels | Use `npm run --silent eval` to sample or review PRs, then `npm run --silent eval:score` to score the saved labels. [Evaluation workflow](#evaluation) |
+
+## Reading the evidence
+
+- **AI inference** proposes behavioral changes, risks, and tests. Citation checks establish which referenced paths and lines can be located.
+- **Static analysis** inspects retrieved patches and applies deterministic rules. The risk score sets review priority.
+- **Actual execution** records which checks ran, where they ran, and their results. Demo assertions exercise bundled code. A failed generated test needs human inspection.
+
+A verified citation has a confirmed line or range. A path-only citation keeps its path. An unanchored finding stays in the report and contributes to the omission count in the PR comment. Older reports can have unchecked citations.
 
 ## Evaluation
 
-Set `DEMO_MODE=false` and leave execution providers and allowlists disabled.
-Sample recent merged PRs or the original PRs identified in revert descriptions:
+Sampling and analysis require live mode. The harness keeps repository execution disabled. Sampling reads GitHub, and analysis can incur inference charges when configured.
 
-```bash
-npm run --silent eval -- --sample-merged OWNER/REPO --limit 10
-npm run --silent eval -- --sample-reverted OWNER/REPO --limit 10
-npm run --silent eval -- --urls eval-output/TIMESTAMP/urls.txt --dry-run
-npm run --silent eval -- --urls eval-output/TIMESTAMP/urls.txt
-npm run --silent eval:score -- eval-output/RUN_TIMESTAMP/labels.csv
+```sh
+npm run --silent eval -- --sample-merged owner/repo --limit 10
+npm run --silent eval -- --sample-reverted owner/repo --limit 10
+npm run --silent eval -- --urls eval-output/sample-timestamp/urls.txt --dry-run
+npm run --silent eval -- --urls eval-output/sample-timestamp/urls.txt
+npm run --silent eval:score -- eval-output/run-timestamp/labels.csv
 ```
 
-Label blind. Open `labels.csv` and the source PRs first. Leave `anchors.csv`, the comments, `index.md`, and `summary.json` closed until scoring.
-Each PR contributes up to 20 AI findings in finding-ID order. Inspect every cited location. Original citations come from the completed run checkpoint when available.
-Enter `useful`, `false_positive`, or `unclear` for the verdict and `y` or `n` for an invented file, line, or symbol. Leave unknown labels blank.
-In `prs.csv`, record whether the review caught the known issue for each reverted PR. Save both sheets as CSV and run `eval:score`.
-`anchors.csv` records every AI finding’s status, reason, and comment rank. Older unchecked findings use `not-checked`.
-`index.md` links the comments. It and `summary.json` count verified, path-only, unanchored, and omitted findings per PR. Omitted includes findings beyond the comment limit.
+Replace the repository and timestamp placeholders with your own. Sampling saves reusable URLs. Each review run has its own output directory. Label blind using the original PRs and `labels.csv` (up to 20 AI findings per PR). Enter `useful`, `false_positive`, or `unclear`, and mark invented references with `y` or `n`. Leave unknown labels blank. Record whether a reverted PR's known issue was caught in `prs.csv`.
 
-- Shown-only precision is useful findings divided by useful plus false positives among the findings shown.
-- Guard recall is the fraction of human-labeled invented references flagged as path-only or unanchored.
-- Guard precision is the fraction of flagged findings with a yes/no reference label that reviewers marked invented.
-- Blind spots count verified locations that reviewers marked invented. Below 20 verdicts, scores are indicative only.
+Keep `anchors.csv`, the comments, `index.md`, and `summary.json` closed until scoring. The scorer joins human labels to citation status and comment rank by finding key. Shown-only precision measures usefulness among decisive verdicts on displayed findings. Guard recall measures the share of invented references flagged. Guard precision measures the share of flagged findings labeled invented. Blind spots count verified locations reviewers labeled invented.
 
-Sampling saves reusable URLs. Add `--run` to analyze them immediately. Defaults are 10 PRs (maximum 25), 10–400 changed lines, 30 files maximum, 60 candidates, and 2 seconds between reviews.
-Three consecutive failures stop analysis. Ctrl+C preserves completed outputs. Configured AI reviews can incur charges.
+## Limitations
 
-## Commands
+- Live retrieval accepts public GitHub PRs. The retriever rejects private repositories. Private-repository support is **not verified**.
+- Live generated tests target isolated Node Vitest projects. Missing source, unsupported tooling, and incomplete diffs limit what can be checked.
+- Repository execution requires an enabled provider and an exact repository allowlist. The CLI does not turn execution on. The Action refuses inherited execution opt-ins.
+- One owner uses one Node process and persistent local filesystem storage. There is no database or distributed worker coordination.
+- A real GitHub Actions run and sticky-comment publication are **not verified**. Local fixture tests cover the publication logic.
+- Evaluation is a small, hand-labeled sample. Review accuracy on a representative benchmark is **not verified**.
 
-```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
-```
+## Project guides
 
-After building, run `npm start` for the production server at **http://127.0.0.1:3000**.
-
-## Scope and limitations
-
-- Public repositories only. Live reproduction/repair supports compatible root Node.js projects using Vitest 3.2+ or 4.
-- Findings and passing tests support only the recorded behavior; incomplete diffs and unexecuted checks remain evidence gaps. Applying patches and merging require human review.
-- Single-owner workspace with one Node server process and persistent local storage. Reports and checkpoints live in `.data/`; the newest 100 completed reports are retained. Public hosting requires HTTPS and configured owner authentication.
-
-For a walkthrough, open **How it works** in the app. See the [demo guide](docs/DEMO.md) and [validation record](docs/VALIDATION.md) for detailed usage and tested limits.
+[Demo walkthrough](docs/DEMO.md) · [Integrations](docs/INTEGRATIONS.md) · [Architecture](docs/ARCHITECTURE.md) · [Validation record](docs/VALIDATION.md) · [Coding-session handoff](docs/HANDOFF.md)
