@@ -45,6 +45,24 @@ beforeEach(() => {
   });
 });
 describe("GitHub retrieval", () => {
+  it("retains the previous path provided by GitHub for a rename", async () => {
+    mock.files.mockResolvedValue({
+      data: [
+        {
+          filename: "new.ts",
+          previous_filename: "old.ts",
+          status: "renamed",
+          additions: 0,
+          deletions: 0,
+        },
+      ],
+    });
+    const result = await fetchPullRequest(ref, async () => {});
+    expect(result.files[0]).toMatchObject({
+      path: "new.ts",
+      previousPath: "old.ts",
+    });
+  });
   it("retrieves immutable metadata and categorizes real patches", async () => {
     const events: number[] = [];
     const result = await fetchPullRequest(ref, async (s) => {

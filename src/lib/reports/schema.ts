@@ -25,19 +25,25 @@ const evidence = z.object({
   durationMs: score.optional(),
   filePaths: paths.optional(),
 });
-const lineRef = z
-  .object({
-    path: name,
-    startLine: count.min(1).optional(),
-    endLine: count.min(1).optional(),
-    side: z.enum(["LEFT", "RIGHT"]).optional(),
-  })
-  .refine(
-    (ref) =>
-      ref.startLine === undefined ||
-      ref.endLine === undefined ||
-      ref.endLine >= ref.startLine,
-  );
+const anchor = z.object({
+  status: z.enum(["verified", "path-only", "unanchored"]),
+  reason: text.optional(),
+});
+const location = z.object({
+  path: name,
+  startLine: count.min(1).optional(),
+  endLine: count.min(1).optional(),
+  side: z.enum(["LEFT", "RIGHT"]).optional(),
+});
+const orderedLines = (ref: z.infer<typeof location>) =>
+  ref.startLine === undefined ||
+  ref.endLine === undefined ||
+  ref.endLine >= ref.startLine;
+const lineRef = location.refine(orderedLines);
+const locations = z
+  .array(location.extend({ anchor }).refine(orderedLines))
+  .max(500)
+  .optional();
 
 /** Versionless reports are the original format. New writes use schemaVersion 1. */
 export const analysisReportSchema = z
@@ -70,6 +76,7 @@ export const analysisReportSchema = z
           .array(
             z.object({
               path: name,
+              previousPath: name.optional(),
               status: name,
               additions: count,
               deletions: count,
@@ -107,6 +114,8 @@ export const analysisReportSchema = z
           behavioralChange: text,
           potentialImpact: text,
           affectedFiles: z.array(lineRef).max(500),
+          anchor: anchor.optional(),
+          locations,
           recommendation: text,
           severity: level,
           status: z.enum([
@@ -156,6 +165,7 @@ export const analysisReportSchema = z
           title: name,
           description: text,
           files: paths,
+          locations,
           source: z.enum(["AI_INFERENCE", "HEURISTIC", "DEMO"]),
         }),
       )

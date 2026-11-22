@@ -12,6 +12,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { AnalysisReport } from "@/lib/types";
+import { compareFindingPriority } from "@/lib/reports/finding-priority";
 import {
   diffRows,
   diffPageSize,
@@ -55,7 +56,7 @@ export function ChangeWorkbench({
   const file = files.find((item) => item.path === path);
   const related = report.findings
     .filter((item) => item.affectedFiles.some((ref) => ref.path === path))
-    .sort((a, b) => b.riskScore - a.riskScore);
+    .sort(compareFindingPriority);
   const finding = related.find((item) => item.id === findingId) ?? related[0];
   const shown = useMemo(
     () => filterWorkbenchFiles(report, files, query, scope, review),

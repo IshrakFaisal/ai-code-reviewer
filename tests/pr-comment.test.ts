@@ -48,6 +48,69 @@ it("summarizes the bundled demo without duplicating fixture checks", () => {
   );
   expect(comment.length).toBeLessThanOrEqual(3500);
 });
+it("keeps curated demo findings and their evidence legend verbatim", () => {
+  const top = output(demo)
+    .split("**Top findings** ")[1]
+    .split("\n\n**Verification**")[0];
+  expect(top).toBe(
+    [
+      "(3 of 3)",
+      "1. **HIGH · Executed**: Password reset token reuse (`src/auth/reset.ts:81`). Someone holding a previously used reset link could change the password again within the expiry window.",
+      "2. **MEDIUM · Demo hypothesis**: Reset token retention needs a policy (`prisma/schema.prisma:40`). Expired credentials may accumulate without an explicit retention or deletion policy.",
+      "3. **MEDIUM · Demo hypothesis**: Reset email delivery needs integration coverage (`src/email/reset.ts:1`). Incorrect environment configuration could produce unusable reset links.",
+      "",
+      "Executed = a check or test ran for this finding · Demo hypothesis = an illustrative finding written for the bundled demo.",
+    ].join("\n"),
+  );
+  expect(demo.findings.every((f) => f.anchor === undefined)).toBe(true);
+});
+it("counts missing locations once per finding across the full report, including omitted rows", () => {
+  const report = live();
+  report.provider = "Nebius";
+  const template = report.findings[0];
+  report.findings = [
+    {
+      ...template,
+      riskScore: 80,
+      anchor: { status: "unanchored" },
+      locations: [
+        { path: "missing.ts", anchor: { status: "unanchored" } },
+        { path: "missing-too.ts", anchor: { status: "unanchored" } },
+      ],
+    },
+    {
+      ...template,
+      title: "Known location",
+      riskScore: 50,
+      anchor: { status: "verified" },
+    },
+    {
+      ...template,
+      riskScore: 60,
+      affectedFiles: [],
+      locations: [{ path: "other.ts", anchor: { status: "unanchored" } }],
+      anchor: { status: "unanchored" },
+    },
+  ];
+  const comment = buildPrComment(report, null, { maxFindings: 2 });
+  expect(comment).toContain("1. **HIGH · AI inference**: Known location");
+  expect(comment).toContain("(`missing.ts`) — location not found in this PR");
+  expect(comment).toContain(
+    "2 AI findings cite locations that do not exist in this PR.",
+  );
+  expect(comment).toContain("AI inference = an unverified model judgment.");
+  expect(comment).not.toContain("unanchored =");
+});
+it("omits missing-location warnings for path-only, verified and unchecked findings", () => {
+  const report = live();
+  report.findings.push(
+    { ...report.findings[0], anchor: { status: "path-only" } },
+    { ...report.findings[0], anchor: { status: "verified" } },
+  );
+  expect(output(report)).not.toMatch(
+    /location not found|do not exist in this PR/,
+  );
+});
 it("defines exactly the finding labels shown in the legend", () => {
   const heuristic = live();
   const ai = live();

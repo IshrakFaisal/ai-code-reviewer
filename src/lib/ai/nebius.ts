@@ -3,9 +3,9 @@ import type { AIProvider } from "./provider";
 import {
   behaviorSchema,
   hypothesisSchema,
+  citedHypothesisSchema,
   planSchema,
   categoryRefinementSchema,
-  groundHypotheses,
 } from "./provider";
 import { SYSTEM_PROMPT } from "./prompts";
 import {
@@ -54,6 +54,7 @@ export class NebiusProvider implements AIProvider {
     task: string,
     data: unknown,
     schema: z.ZodType<T>,
+    readSchema: z.ZodType<T> = schema,
   ): Promise<T> {
     const config = (this.configuration ||= nebiusConfiguration());
     this.modelValidation ||= validateNebiusModel(
@@ -110,7 +111,7 @@ export class NebiusProvider implements AIProvider {
         const envelope = JSON.parse(raw);
         if (envelope.choices?.[0]?.message?.refusal)
           throw new Error("Model declined analysis.");
-        return schema.parse(
+        return readSchema.parse(
           JSON.parse(envelope.choices?.[0]?.message?.content),
         );
       } catch {
@@ -139,7 +140,7 @@ export class NebiusProvider implements AIProvider {
     );
     return result.changes.map((b) => ({
       ...b,
-      files: b.files.filter((p) => pr.files.some((f) => f.path === p)),
+      files: b.files.filter(Boolean),
       source: "AI_INFERENCE" as const,
     }));
   }
@@ -158,8 +159,9 @@ export class NebiusProvider implements AIProvider {
       `Generate at most ${limit} distinct, testable risk hypotheses. Explain change, impact, verification recommendation and files.`,
       context(pr),
       z.object({ hypotheses: z.array(hypothesisSchema).max(limit) }),
+      z.object({ hypotheses: z.array(citedHypothesisSchema).max(limit) }),
     );
-    return groundHypotheses(result.hypotheses, pr);
+    return result.hypotheses;
   }
   async generateVerificationPlan(
     pr: PullRequest,

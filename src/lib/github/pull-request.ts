@@ -33,6 +33,7 @@ export async function fetchPullRequest(
         const patch = f.patch?.slice(0, 20000);
         const file = {
           path: f.filename,
+          ...(f.previous_filename && { previousPath: f.previous_filename }),
           status: f.status,
           additions: f.additions,
           deletions: f.deletions,

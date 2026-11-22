@@ -1,6 +1,7 @@
 import { riskLevel } from "@/lib/risk/engine";
 import type { AnalysisReport, Evidence } from "@/lib/types";
 import type { ReviewState } from "./review";
+import { compareFindingPriority } from "./finding-priority";
 import {
   evidenceIdentity,
   reportEvidence,
@@ -108,9 +109,7 @@ export function buildPrComment(
   const skipped = evidence.filter(
     (e) => e.status === "NOT_RUN" && e.provenance !== "STATIC",
   );
-  const findings = [...report.findings].sort(
-    (a, b) => b.riskScore - a.riskScore,
-  );
+  const findings = [...report.findings].sort(compareFindingPriority);
   const top = findings.slice(
     0,
     Math.max(1, Math.min(5, options.maxFindings || 5)),
@@ -142,11 +141,17 @@ export function buildPrComment(
               ? "Heuristic"
               : "AI inference";
       labels.add(label);
-      const ref = f.affectedFiles[0];
+      const ref =
+        f.locations?.find((ref) => ref.anchor.status === f.anchor?.status) ??
+        f.affectedFiles[0];
       const where = ref
         ? ` (\`${field(ref.path, 125, true)}${ref.startLine ? ":" + ref.startLine : ""}\`)`
         : "";
-      return `${i + 1}. **${f.severity} · ${label}**: ${field(f.title, 115)}${where}. ${field(f.potentialImpact, 200)}`;
+      const marker =
+        f.anchor?.status === "unanchored"
+          ? " — location not found in this PR"
+          : "";
+      return `${i + 1}. **${f.severity} · ${label}**: ${field(f.title, 115)}${where}${marker}. ${field(f.potentialImpact, 200)}`;
     });
     if (top.length < findings.length)
       rows.push(
@@ -201,8 +206,16 @@ export function buildPrComment(
   const coverageWarning = warnings.find((warning) =>
     /line coverage is partial\b|\(500-file cap\)/i.test(warning),
   );
+  const unanchored = findings.filter(
+    (f) => f.anchor?.status === "unanchored",
+  ).length;
   const limitations = [
     ...new Set([
+      ...(unanchored
+        ? [
+            `${unanchored} AI ${unanchored === 1 ? "finding cites" : "findings cite"} locations that do not exist in this PR.`,
+          ]
+        : []),
       ...(gaps.highRiskGaps
         ? [
             `${gaps.highRiskGaps} high-priority files lack linked repository execution.`,

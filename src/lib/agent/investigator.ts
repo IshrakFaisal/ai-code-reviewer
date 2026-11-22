@@ -2,7 +2,17 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { checkpointSteps, type InvestigationSession } from "./checkpoint";
 import { analysisReportSchema } from "@/lib/reports/schema";
-import { categoryRefinementSchema, hypothesisSchema } from "@/lib/ai/provider";
+import {
+  categoryRefinementSchema,
+  groundHypotheses,
+  citedHypothesisSchema,
+} from "@/lib/ai/provider";
+import {
+  anchorReferences,
+  excerptLineCount,
+  findingAnchor,
+} from "@/lib/ai/anchor-references";
+import { compareFindingPriority } from "@/lib/reports/finding-priority";
 import { testContextLoader } from "@/lib/ai/test-context";
 import { getConfig } from "@/lib/config";
 import { parseGitHubInput } from "@/lib/github/input";
@@ -222,30 +232,38 @@ export async function investigate(
   let hypotheses = demo
     ? sampleHypotheses.slice(0, config.maxInvestigations)
     : heuristicHypotheses(pr, config.maxInvestigations);
-  if (intentResult.useAI)
-    hypotheses = (
-      await optionalAI(
-        "hypotheses",
-        z.array(hypothesisSchema).max(10),
-        hypotheses,
-        "Hypothesis generation unavailable; deterministic review priorities retained.",
-        () => ai!.generateRiskHypotheses(pr, config.maxInvestigations),
-      )
-    ).value;
+  let hasModelHypotheses = false;
+  if (intentResult.useAI) {
+    const result = await optionalAI(
+      "hypotheses",
+      z.array(citedHypothesisSchema).max(10),
+      hypotheses,
+      "Hypothesis generation unavailable; deterministic review priorities retained.",
+      () => ai!.generateRiskHypotheses(pr, config.maxInvestigations),
+    );
+    hypotheses = result.value;
+    hasModelHypotheses = !result.warning;
+  }
   await progress(
     8,
     `${hypotheses.length} bounded investigations selected (limit ${config.maxInvestigations})`,
     "HYPOTHESIZE",
   );
   const findings: Finding[] = hypotheses.map((h, i) => {
+    // Keep the existing changed-file boundary for test generation and execution.
+    // Raw model citations are retained separately for the report.
+    const affectedFiles = hasModelHypotheses
+      ? (groundHypotheses([h], pr)[0]?.affectedFiles ?? [])
+      : h.affectedFiles;
     const score = Math.max(
       0,
-      ...h.affectedFiles.map(
+      ...affectedFiles.map(
         (r) => pr.files.find((f) => f.path === r.path)?.risk.score || 0,
       ),
     );
     return {
       ...h,
+      affectedFiles,
       id: `finding-${i + 1}`,
       severity: riskLevel(score),
       status: "UNVERIFIED_RISK",
@@ -261,24 +279,50 @@ export async function investigate(
     "PLAN",
   );
   const loadTestContext = testContextLoader(pr, signal);
+  const headLines = new Map<string, number>();
   for (const f of findings) {
     if (demo && f.id === "finding-1") f.generatedTest = demoGeneratedTest;
-    else if (intentResult.useAI) {
+    else if (intentResult.useAI && f.affectedFiles.length) {
       const result = await checkpoint.step(
         `test:${f.id}`,
         z.object({
           plan: fields.findings.element.shape.generatedTest.unwrap().nullable(),
           warning: z.string(),
+          // Older checkpoints contain plan provenance but no excerpt lengths.
+          excerpts: z
+            .object({
+              headSha: fields.pr.shape.headSha,
+              files: z
+                .array(
+                  z.object({
+                    path: z.string(),
+                    lines: z.number().int().nonnegative(),
+                  }),
+                )
+                .max(12),
+            })
+            .optional(),
         }),
         async () => {
+          let excerpts;
           try {
             const repository = await loadTestContext(f);
+            if (repository.headSha === pr.headSha) {
+              excerpts = {
+                headSha: repository.headSha,
+                files: repository.files.map((file) => ({
+                  path: file.path,
+                  lines: excerptLineCount(file.content),
+                })),
+              };
+            }
             const plan = await ai!.generateVerificationPlan(pr, f, repository);
-            return { plan, warning: "" };
+            return { plan, warning: "", excerpts };
           } catch (error) {
             signal?.throwIfAborted();
             return {
               plan: null,
+              excerpts,
               warning: `Test generation unavailable for ${f.title}: ${error instanceof Error ? error.message.slice(0, 2400) : "Insufficient repository context."}`,
             };
           }
@@ -290,6 +334,13 @@ export async function investigate(
           "Saved test context does not match the pinned revision. Start a new analysis.",
         );
       if (result.warning) warnings.push(result.warning);
+      if (result.excerpts?.headSha === pr.headSha) {
+        for (const { path, lines } of result.excerpts.files)
+          headLines.set(path, Math.max(headLines.get(path) ?? 0, lines));
+      } else if (!result.excerpts && result.plan?.context) {
+        for (const { path } of result.plan.context.files)
+          if (!headLines.has(path)) headLines.set(path, 0);
+      }
     }
   }
   await progress(
@@ -354,15 +405,22 @@ export async function investigate(
             "Verification resumed at the recorded commits in a fresh sandbox. Completed command and test results are retained; dependency installation and any successful build needed for preparation are repeated. Dependency resolution can differ between attempts.",
           );
         executionChecks.push(
-          ...(await runLiveVerification(pr, findings, signal, {
-            checkpoint: saved,
-            persist: (value) =>
-              checkpoint.write(
-                "verificationProgress",
-                verificationCheckpointSchema,
-                value,
-              ),
-          })),
+          ...(await runLiveVerification(
+            pr,
+            hasModelHypotheses
+              ? findings.filter((f) => f.affectedFiles.length)
+              : findings,
+            signal,
+            {
+              checkpoint: saved,
+              persist: (value) =>
+                checkpoint.write(
+                  "verificationProgress",
+                  verificationCheckpointSchema,
+                  value,
+                ),
+            },
+          )),
         );
       }
       signal?.throwIfAborted();
@@ -400,6 +458,41 @@ export async function investigate(
       [...checks, ...findings.flatMap((f) => f.evidence)],
       configuredWeights(),
     );
+  const anchorContext = { files: pr.files, headLines };
+  if (hasModelHypotheses) {
+    findings.forEach((finding, index) => {
+      const locations = anchorReferences(
+        hypotheses[index].affectedFiles,
+        anchorContext,
+      );
+      finding.locations = locations;
+      finding.anchor = findingAnchor(locations);
+      // Only confirmed changed files are affected-file targets for downstream consumers.
+      finding.affectedFiles = locations.flatMap(({ anchor, ...ref }) => {
+        if (anchor.status === "unanchored") return [];
+        const file = pr.files.find(
+          (file) =>
+            (ref.side === "LEFT" && ref.path === file.previousPath) ||
+            file.path === ref.path,
+        );
+        return file ? [{ ...ref, path: file.path }] : [];
+      });
+    });
+  }
+  behaviors = behaviors.map((behavior) => {
+    if (behavior.source !== "AI_INFERENCE") return behavior;
+    const locations = anchorReferences(
+      behavior.files.map((path) => ({ path })),
+      anchorContext,
+    );
+    return {
+      ...behavior,
+      locations,
+      files: locations
+        .filter((ref) => ref.anchor.status !== "unanchored")
+        .map((ref) => ref.path),
+    };
+  });
   for (const f of findings) {
     f.riskScore = Math.max(
       0,
@@ -427,7 +520,7 @@ export async function investigate(
     provider,
     pr,
     summary: intent,
-    findings: findings.sort((a, b) => b.riskScore - a.riskScore),
+    findings: findings.sort(compareFindingPriority),
     checks,
     behaviors,
     events,

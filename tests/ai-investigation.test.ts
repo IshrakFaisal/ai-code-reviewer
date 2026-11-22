@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PullRequest } from "@/lib/types";
+import type { LineRef, PullRequest } from "@/lib/types";
+import { validateReport } from "@/lib/reports/schema";
 import { assessRisk } from "@/lib/risk/engine";
 
 vi.mock("@/lib/github/pull-request", () => ({
@@ -18,6 +19,13 @@ vi.mock("@/lib/ai/test-context", () => ({
         role: "source",
         content: "export const signIn = () => database.save(session);",
         truncated: false,
+      },
+      {
+        path: "nearby.test.ts",
+        sha: "d".repeat(40),
+        role: "test",
+        content: "one\ntwo\n",
+        truncated: true,
       },
     ],
     limitations: [],
@@ -97,7 +105,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function mockModel(invalidRefinement = false) {
+function mockModel(
+  invalidRefinement = false,
+  citations: LineRef[][] = [[{ path: changedPath }]],
+) {
   const observedHypothesisScores: number[] = [];
   const fetcher = vi.fn<typeof fetch>(async (url, options) => {
     if (String(url).endsWith("/models"))
@@ -126,24 +137,22 @@ function mockModel(invalidRefinement = false) {
           {
             title: "Session storage",
             description: "Sign-in now writes a session.",
-            files: [changedPath],
+            files: [changedPath, "nearby.test.ts", "wrong-case.TS"],
           },
         ],
       };
     else if (task.startsWith("Generate at most")) {
       observedHypothesisScores.push(data.files[0].risk.score);
       result = {
-        hypotheses: [
-          {
-            title: "Session write can fail",
-            category: "DATABASE",
-            description: "The database write may fail.",
-            behavioralChange: "Sign-in now persists sessions.",
-            potentialImpact: "Sign-in may become unavailable.",
-            affectedFiles: [{ path: changedPath }],
-            recommendation: "Test persistence failures.",
-          },
-        ],
+        hypotheses: citations.map((affectedFiles) => ({
+          title: "Session write can fail",
+          category: "DATABASE",
+          description: "The database write may fail.",
+          behavioralChange: "Sign-in now persists sessions.",
+          potentialImpact: "Sign-in may become unavailable.",
+          affectedFiles,
+          recommendation: "Test persistence failures.",
+        })),
       };
     } else if (task.startsWith("Generate one targeted"))
       result = {
@@ -165,8 +174,58 @@ function mockModel(invalidRefinement = false) {
 }
 
 describe("live AI category refinement orchestration", () => {
+  it("retains every model finding and puts a missing citation last within its severity", async () => {
+    mockModel(false, [
+      [{ path: changedPath, startLine: 1 }, { path: "missing.ts" }],
+      [
+        { path: changedPath, startLine: 1 },
+        { path: "nearby.test.ts", startLine: 2 },
+      ],
+      [{ path: changedPath, startLine: 0.5 }],
+    ]);
+    const report = await investigate({ input: "acme/platform", prNumber: 1 });
+    expect(
+      report.findings.map((f) => [f.id, f.anchor?.status, f.severity]),
+    ).toEqual([
+      ["finding-2", "verified", "HIGH"],
+      ["finding-3", "path-only", "HIGH"],
+      ["finding-1", "unanchored", "HIGH"],
+    ]);
+    expect(report.findings[1].affectedFiles[0]).not.toHaveProperty("startLine");
+    expect(report.findings[2].locations?.[1]).toMatchObject({
+      path: "missing.ts",
+      anchor: { status: "unanchored" },
+    });
+    expect(report.findings[2].affectedFiles.map((f) => f.path)).toEqual([
+      changedPath,
+    ]);
+    expect(
+      report.behaviors[0].locations?.map((ref) => ref.anchor.status),
+    ).toEqual(["path-only", "path-only", "unanchored"]);
+    expect(validateReport(JSON.parse(JSON.stringify(report)))).toEqual(report);
+  });
+  it("retains a wholly invented location without passing it to planning or execution", async () => {
+    const { fetcher } = mockModel(false, [
+      [{ path: "/absent.ts", startLine: 8 }],
+    ]);
+    const report = await investigate({ input: "acme/platform", prNumber: 1 });
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]).toMatchObject({
+      affectedFiles: [],
+      anchor: { status: "unanchored" },
+      locations: [{ path: "/absent.ts" }],
+    });
+    expect(vi.mocked(runLiveVerification).mock.calls[0][1]).toEqual([]);
+    expect(
+      fetcher.mock.calls.some(([, options]) =>
+        String(options?.body).includes("Generate one targeted"),
+      ),
+    ).toBe(false);
+  });
   it("resumes after generation with pinned data and no repeated inference, even if model credentials are now unavailable", async () => {
-    const { fetcher } = mockModel();
+    const { fetcher } = mockModel(false, [
+      [{ path: changedPath }, { path: "nearby.test.ts", startLine: 2 }],
+    ]);
     const controller = new AbortController();
     let checkpoint: InvestigationCheckpoint | undefined;
     const session = {
@@ -196,6 +255,7 @@ describe("live AI category refinement orchestration", () => {
       { ...session, checkpoint },
     );
     expect(report.id).toBe(session.id);
+    expect(report.findings[0].locations?.[1].anchor.status).toBe("verified");
     expect(report.findings[0].generatedTest?.context?.headSha).toBe(
       "b".repeat(40),
     );

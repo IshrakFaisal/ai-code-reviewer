@@ -127,6 +127,14 @@ function FindingCard({
             <span className={cn("risk-badge", f.severity.toLowerCase())}>
               {f.severity}
             </span>
+            {(f.anchor?.status === "path-only" ||
+              f.anchor?.status === "unanchored") && (
+              <span className="mini-badge" title={f.anchor.reason}>
+                {f.anchor.status === "path-only"
+                  ? "Path only"
+                  : "Location not found in this PR"}
+              </span>
+            )}
             <span
               className={cn(
                 "finding-status",
@@ -161,10 +169,12 @@ function FindingCard({
           </div>
         </div>
         <div className="finding-files">
-          {f.affectedFiles.map((r) => (
-            <span key={r.path}>
+          {(f.locations ?? f.affectedFiles).map((r, i) => (
+            <span key={i}>
               <FileCode2 size={13} />
-              {report.mode === "LIVE" ? (
+              {report.mode === "LIVE" &&
+              (f.locations?.[i].anchor.status ?? f.anchor?.status) !==
+                "unanchored" ? (
                 <a
                   href={`https://github.com/${report.pr.owner}/${report.pr.repo}/blob/${r.side === "LEFT" ? report.pr.baseSha : report.pr.headSha}/${r.path.split("/").map(encodeURIComponent).join("/")}${r.startLine ? `#L${r.startLine}${r.endLine ? `-L${r.endLine}` : ""}` : ""}`}
                   target="_blank"
@@ -805,9 +815,15 @@ export function ReportView({ report }: { report: AnalysisReport }) {
                   <h3>{b.title}</h3>
                   <p>{b.description}</p>
                   <div>
-                    {b.files.map((f) => (
-                      <code key={f}>{f}</code>
-                    ))}
+                    {b.locations
+                      ? b.locations.map((ref, index) => (
+                          <code key={index}>
+                            {ref.path}
+                            {ref.anchor.status === "unanchored" &&
+                              " · location not found in this PR"}
+                          </code>
+                        ))
+                      : b.files.map((f) => <code key={f}>{f}</code>)}
                   </div>
                 </article>
               ))}

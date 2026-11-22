@@ -29,6 +29,19 @@ export const hypothesisSchema = z.object({
     .max(8),
   recommendation: text,
 });
+// Keep requesting positive integer lines. A malformed numeric coordinate in an
+// otherwise valid response can still be classified without losing its siblings.
+export const citedHypothesisSchema = hypothesisSchema.extend({
+  affectedFiles: z
+    .array(
+      hypothesisSchema.shape.affectedFiles.element.extend({
+        startLine: z.number().optional(),
+        endLine: z.number().optional(),
+      }),
+    )
+    .min(1)
+    .max(8),
+});
 export const behaviorSchema = z.object({
   title: text,
   description: text,
@@ -64,7 +77,7 @@ export interface AIProvider {
     hypotheses: Hypothesis[],
   ): Promise<string>;
 }
-/** Reject invented file paths and remove ungrounded line numbers before rendering links. */
+/** Limit test-planning targets to changed files and observed changed lines. */
 export function groundHypotheses(
   hypotheses: Hypothesis[],
   pr: PullRequest,
@@ -80,6 +93,9 @@ export function groundHypotheses(
           if (
             !r.startLine ||
             !r.endLine ||
+            !Number.isSafeInteger(r.startLine) ||
+            !Number.isSafeInteger(r.endLine) ||
+            r.startLine < 1 ||
             r.endLine < r.startLine ||
             !file.lines.some(
               (l) =>

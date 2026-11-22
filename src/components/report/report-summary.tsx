@@ -2,6 +2,7 @@
 
 import { ArrowRight } from "lucide-react";
 import type { AnalysisReport } from "@/lib/types";
+import { compareFindingPriority } from "@/lib/reports/finding-priority";
 import {
   reportEvidence,
   verificationGaps,
@@ -17,7 +18,7 @@ export function ReportSummary({ report }: { report: AnalysisReport }) {
   const failed = executed.filter((item) => item.status === "FAIL").length;
   const gaps = verificationGaps(report);
   const priority = [...report.findings]
-    .sort((a, b) => b.riskScore - a.riskScore)
+    .sort(compareFindingPriority)
     .slice(0, 3);
   const warningCount = new Set([...report.warnings, ...report.pr.warnings])
     .size;

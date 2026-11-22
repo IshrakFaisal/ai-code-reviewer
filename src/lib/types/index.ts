@@ -27,6 +27,11 @@ export type LineRef = {
   endLine?: number;
   side?: "LEFT" | "RIGHT";
 };
+export type LocationAnchor = {
+  status: "verified" | "path-only" | "unanchored";
+  reason?: string;
+};
+export type CitedLocation = LineRef & { anchor: LocationAnchor };
 export type DiffLine = {
   line: number;
   side: "LEFT" | "RIGHT";
@@ -35,6 +40,7 @@ export type DiffLine = {
 };
 export interface ChangedFile {
   path: string;
+  previousPath?: string;
   status: string;
   additions: number;
   deletions: number;
@@ -92,6 +98,9 @@ export interface Hypothesis {
   recommendation: string;
 }
 export interface Finding extends Hypothesis {
+  anchor?: LocationAnchor;
+  /** All AI citations, including paths that cannot be used as investigation targets. */
+  locations?: CitedLocation[];
   id: string;
   severity: RiskLevel;
   status: FindingStatus;
@@ -103,6 +112,7 @@ export interface Behavior {
   title: string;
   description: string;
   files: string[];
+  locations?: CitedLocation[];
   source: "AI_INFERENCE" | "HEURISTIC" | "DEMO";
 }
 export interface AgentEvent {
