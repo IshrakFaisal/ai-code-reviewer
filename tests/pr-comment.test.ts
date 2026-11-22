@@ -1,4 +1,5 @@
 import { beforeAll, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { investigate } from "@/lib/agent/investigator";
 import { buildPrComment } from "@/lib/reports/pr-comment";
 import { emptyReviewState } from "@/lib/reports/review";
@@ -64,7 +65,7 @@ it("keeps curated demo findings and their evidence legend verbatim", () => {
   );
   expect(demo.findings.every((f) => f.anchor === undefined)).toBe(true);
 });
-it("counts missing locations once per finding across the full report, including omitted rows", () => {
+it("omits missing locations and counts only eligible findings in the list", () => {
   const report = live();
   report.provider = "Nebius";
   const template = report.findings[0];
@@ -93,13 +94,62 @@ it("counts missing locations once per finding across the full report, including 
     },
   ];
   const comment = buildPrComment(report, null, { maxFindings: 2 });
+  expect(comment).toContain("**Top findings** (1 of 1)");
   expect(comment).toContain("1. **HIGH · AI inference**: Known location");
-  expect(comment).toContain("(`missing.ts`) — location not found in this PR");
+  expect(comment).not.toMatch(
+    /missing\.ts|other\.ts|Password reset token reuse|more in the full report/,
+  );
   expect(comment).toContain(
-    "2 AI findings cite locations that do not exist in this PR.",
+    "2 AI findings cite locations that do not exist in this PR and are omitted here (see the report).",
   );
   expect(comment).toContain("AI inference = an unverified model judgment.");
   expect(comment).not.toContain("unanchored =");
+});
+it("keeps the complete dated demo comment byte-identical", () => {
+  const comment = output({ ...demo, createdAt: "2026-11-22T00:00:00.000Z" });
+  expect(comment).toHaveLength(1766);
+  expect(createHash("sha256").update(comment, "utf8").digest("hex")).toBe(
+    "947e0530c122cf60752ad7858f50b65bbeebbfd98d0c34be7878db714267dd98",
+  );
+});
+it("explains an entirely unanchored review without revealing a title, warning or legend", () => {
+  const report = live();
+  report.findings[0].anchor = { status: "unanchored" };
+  report.warnings = [
+    "Test generation unavailable for " +
+      report.findings[0].title +
+      ": missing.ts",
+  ];
+  const comment = output(report);
+  expect(comment).toContain(
+    "**Top findings** (0 of 0)\nAll AI findings were omitted",
+  );
+  expect(comment).toContain(
+    "1 AI finding cites locations that do not exist in this PR and is omitted here (see the report).",
+  );
+  expect(comment).not.toContain(report.findings[0].title);
+  expect(comment).not.toMatch(/missing\.ts|Heuristic =/);
+});
+it("prints only the path of a path-only finding even when a stored reference has lines", () => {
+  const report = live();
+  report.findings[0].anchor = { status: "path-only" };
+  expect(output(report)).toContain("(`src/auth/reset.ts`)");
+  expect(output(report)).not.toContain("src/auth/reset.ts:81");
+});
+it("fills the last available rank and counts overflow from listable findings only", () => {
+  const report = live();
+  const template = report.findings[0];
+  report.findings = Array.from({ length: 8 }, (_, i) => ({
+    ...template,
+    title: "Ranked " + i,
+    riskScore: 100 - i,
+    anchor: { status: i < 2 ? "unanchored" : "verified" },
+  }));
+  const comment = output(report);
+  expect(comment).toContain("**Top findings** (5 of 6)");
+  expect(comment).toContain("5. **HIGH · Heuristic**: Ranked 6");
+  expect(comment).toContain("…and 1 more in the full report");
+  expect(comment).not.toMatch(/Ranked [017]/);
 });
 it("omits missing-location warnings for path-only, verified and unchecked findings", () => {
   const report = live();

@@ -1,5 +1,5 @@
 import { riskLevel } from "@/lib/risk/engine";
-import type { AnalysisReport, Evidence } from "@/lib/types";
+import type { AnalysisReport, Evidence, Finding } from "@/lib/types";
 import type { ReviewState } from "./review";
 import { compareFindingPriority } from "./finding-priority";
 import {
@@ -68,6 +68,39 @@ export function reportPriorityScore(report: AnalysisReport) {
   );
 }
 
+export function selectCommentFindings(report: AnalysisReport, maxFindings = 5) {
+  const listable = report.findings
+    .filter((f) => f.anchor?.status !== "unanchored")
+    .sort(compareFindingPriority);
+  const shown = listable.slice(0, Math.max(1, Math.min(5, maxFindings || 5)));
+  return { listable, shown };
+}
+
+function wasExecuted(e: Evidence, demo: boolean) {
+  return (
+    e.status !== "NOT_RUN" &&
+    (e.provenance === "EXECUTED" || (demo && e.provenance === "DEMO_FIXTURE"))
+  );
+}
+
+export function findingEvidenceLabel(
+  report: AnalysisReport,
+  finding: Finding,
+): keyof typeof labelDefinitions {
+  const demo = report.mode === "DEMO";
+  if (finding.evidence.some((e) => wasExecuted(e, demo))) return "Executed";
+  if (
+    finding.evidence.some(
+      (e) => e.provenance === "STATIC" && e.status !== "NOT_RUN",
+    )
+  )
+    return "Static analysis";
+  if (demo) return "Demo hypothesis";
+  return report.provider === "Deterministic analysis"
+    ? "Heuristic"
+    : "AI inference";
+}
+
 export function buildPrComment(
   report: AnalysisReport,
   reviews: ReviewState | null | undefined,
@@ -79,9 +112,6 @@ export function buildPrComment(
     : report.provider === "Deterministic analysis"
       ? "Live heuristics"
       : "Live AI";
-  const isRun = (e: Evidence) =>
-    e.status !== "NOT_RUN" &&
-    (e.provenance === "EXECUTED" || (demo && e.provenance === "DEMO_FIXTURE"));
   // A generated check belongs to its finding. Two findings can have identical
   // results, while the demo also mirrors its results in the global checks.
   const attached = report.findings.flatMap((f) =>
@@ -104,16 +134,16 @@ export function buildPrComment(
       return false;
     }),
   ];
-  const executed = evidence.filter(isRun);
+  const executed = evidence.filter((e) => wasExecuted(e, demo));
   const generated = executed.filter((e) => e.type === "Generated test");
   const skipped = evidence.filter(
     (e) => e.status === "NOT_RUN" && e.provenance !== "STATIC",
   );
-  const findings = [...report.findings].sort(compareFindingPriority);
-  const top = findings.slice(
-    0,
-    Math.max(1, Math.min(5, options.maxFindings || 5)),
+  const { listable: findings, shown: top } = selectCommentFindings(
+    report,
+    options.maxFindings,
   );
+  const unanchored = report.findings.length - findings.length;
   const score = reportPriorityScore(report);
   const sha = field(report.pr.headSha, 65, true);
   const sections = [
@@ -129,29 +159,15 @@ export function buildPrComment(
   if (top.length) {
     const labels = new Set<keyof typeof labelDefinitions>();
     const rows = top.map((f, i) => {
-      const label = f.evidence.some(isRun)
-        ? "Executed"
-        : f.evidence.some(
-              (e) => e.provenance === "STATIC" && e.status !== "NOT_RUN",
-            )
-          ? "Static analysis"
-          : demo
-            ? "Demo hypothesis"
-            : mode === "Live heuristics"
-              ? "Heuristic"
-              : "AI inference";
+      const label = findingEvidenceLabel(report, f);
       labels.add(label);
       const ref =
         f.locations?.find((ref) => ref.anchor.status === f.anchor?.status) ??
         f.affectedFiles[0];
       const where = ref
-        ? ` (\`${field(ref.path, 125, true)}${ref.startLine ? ":" + ref.startLine : ""}\`)`
+        ? ` (\`${field(ref.path, 125, true)}${f.anchor?.status !== "path-only" && ref.startLine ? ":" + ref.startLine : ""}\`)`
         : "";
-      const marker =
-        f.anchor?.status === "unanchored"
-          ? " — location not found in this PR"
-          : "";
-      return `${i + 1}. **${f.severity} · ${label}**: ${field(f.title, 115)}${where}${marker}. ${field(f.potentialImpact, 200)}`;
+      return `${i + 1}. **${f.severity} · ${label}**: ${field(f.title, 115)}${where}. ${field(f.potentialImpact, 200)}`;
     });
     if (top.length < findings.length)
       rows.push(
@@ -168,6 +184,10 @@ export function buildPrComment(
       [`**Top findings** (${top.length} of ${findings.length})`, ...rows].join(
         "\n",
       ),
+    );
+  } else if (unanchored) {
+    sections.push(
+      "**Top findings** (0 of 0)\nAll AI findings were omitted because their cited locations could not be found in this PR.",
     );
   }
   if (executed.length || skipped.length) {
@@ -202,20 +222,20 @@ export function buildPrComment(
     sections.push(["**Verification**", ...rows].join("\n"));
   }
   const gaps = verificationGaps(report);
-  const warnings = [...report.pr.warnings, ...report.warnings];
+  const omittedWarnings = report.findings
+    .filter((f) => f.anchor?.status === "unanchored")
+    .map((f) => `Test generation unavailable for ${f.title}:`);
+  const warnings = [
+    ...report.pr.warnings,
+    ...report.warnings.filter(
+      (w) => !omittedWarnings.some((prefix) => w.startsWith(prefix)),
+    ),
+  ];
   const coverageWarning = warnings.find((warning) =>
     /line coverage is partial\b|\(500-file cap\)/i.test(warning),
   );
-  const unanchored = findings.filter(
-    (f) => f.anchor?.status === "unanchored",
-  ).length;
   const limitations = [
     ...new Set([
-      ...(unanchored
-        ? [
-            `${unanchored} AI ${unanchored === 1 ? "finding cites" : "findings cite"} locations that do not exist in this PR.`,
-          ]
-        : []),
       ...(gaps.highRiskGaps
         ? [
             `${gaps.highRiskGaps} high-priority files lack linked repository execution.`,
@@ -228,13 +248,15 @@ export function buildPrComment(
     ]),
   ]
     .filter(Boolean)
-    .slice(0, 3);
+    .slice(0, unanchored ? 2 : 3)
+    .map((s) => field(s, 180));
+  if (unanchored)
+    limitations.unshift(
+      `${unanchored} AI ${unanchored === 1 ? "finding cites" : "findings cite"} locations that do not exist in this PR and ${unanchored === 1 ? "is" : "are"} omitted here (see the report).`,
+    );
   if (limitations.length)
     sections.push(
-      [
-        "**Evidence gaps**",
-        ...limitations.map((s) => "- " + field(s, 180)),
-      ].join("\n"),
+      ["**Evidence gaps**", ...limitations.map((s) => "- " + s)].join("\n"),
     );
   if (
     findings.length &&
