@@ -44,6 +44,8 @@ An inference key alone does not enable repository execution. See [Windows Docker
 
 ## Command line
 
+For automated PR summaries and a sticky review comment, see the [GitHub Action setup](docs/INTEGRATIONS.md#github-action).
+
 Run from the project root after `npm ci`. The CLI reads the environment and
 `.env.local` and saves reports in the same `.data/` store as the web app.
 

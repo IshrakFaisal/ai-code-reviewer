@@ -83,4 +83,38 @@ GitHub connections use a fresh 20-second abort signal for each attempt, combined
 
 The app server must have outbound access to `api.github.com:443`. If a restricted coding-agent process prevents networking, launch the app from a regular terminal as described in the README. `GITHUB_TOKEN` is optional for public PRs and does not override network restrictions.
 
-No GitHub App installation, PR comments, webhooks, or external writes are included.
+The web app and CLI use read-only GitHub access. The optional Action below also publishes a PR comment.
+
+## GitHub Action
+
+Use a trusted, published commit of this repository in a workflow in the repository being reviewed:
+
+```yaml
+name: Review
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: IshrakFaisal/ai-code-reviewer@<full-commit-sha>
+        env:
+          NEBIUS_MODEL: ${{ vars.NEBIUS_MODEL }}
+        with:
+          nebius-api-key: ${{ secrets.NEBIUS_API_KEY }}
+```
+
+The review reads the PR through GitHub's API and never executes the reviewed project's code or tests.
+This repository's own workflow checks out the PR head to run the Action implementation from source. That code runs with the step's permissions, so same-repository PR authors must be trusted. Same-repo PRs receive a job summary and one marker-tagged Bot comment, updated in place. Fork PRs use the read-only token and receive the summary only.
+
+`github-token` defaults to the job's `github.token`. Use the default Bot identity. Personal access token identities are unsupported in v1. Private-repository PRs are unverified; the current reviewer requires a public repository.
+
+`node-version` defaults to 24. The Action installs dev dependencies with lifecycle scripts disabled. With no `nebius-api-key`, reviews use static analysis and deterministic heuristics. To enable potentially billable inference, provide the key and an account-enabled model ID in `NEBIUS_MODEL`. There is no additional Action spending cap.
+
+`fail-on` accepts `none` (default), `medium`, or `high`. Meeting the threshold fails the job after publication. `strict` defaults to `false`: CLI errors produce a one-line unavailable summary; set it to `true` to also fail the job. Publication errors fail the job.

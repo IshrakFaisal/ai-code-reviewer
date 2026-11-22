@@ -1,0 +1,25 @@
+name: PR review
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: ./
+        env:
+          NEBIUS_MODEL: ${{ vars.NEBIUS_MODEL }}
+        with:
+          nebius-api-key: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.NEBIUS_API_KEY || '' }}

@@ -1,0 +1,50 @@
+name: AI Change Verifier
+description: Review a public pull request and publish its evidence summary.
+inputs:
+  github-token:
+    description: GitHub Actions token for reading the PR and updating its comment.
+    default: ${{ github.token }}
+  nebius-api-key:
+    description: Optional Nebius inference key. Set NEBIUS_MODEL in the step environment.
+    required: false
+  fail-on:
+    description: Review-priority threshold (none, medium, or high).
+    default: 'none'
+  strict:
+    description: Fail the job when the review is unavailable.
+    default: 'false'
+  node-version:
+    description: Node.js version for the review.
+    default: '24'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/package-lock.json
+    - shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --ignore-scripts --include=dev
+    - shell: bash
+      env:
+        ACTION_ROOT: ${{ github.action_path }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        NEBIUS_API_KEY: ${{ inputs.nebius-api-key }}
+        REVIEW_FAIL_ON: ${{ inputs.fail-on }}
+        REVIEW_STRICT: ${{ inputs.strict }}
+        DEMO_MODE: 'false'
+      run: |
+        cd "$(mktemp -d)"
+        node --input-type=commonjs <<'NODE'
+        const path = require("node:path");
+        const { createRequire } = require("node:module");
+        const entry = path.join(process.env.ACTION_ROOT, "scripts", "pr-action.ts");
+        const { createJiti } = createRequire(entry)("jiti");
+        const loader = createJiti(entry, { alias: { "@": path.join(process.env.ACTION_ROOT, "src") } });
+        loader.import(entry).then(action => action.main()).then(code => { process.exitCode = code; }).catch(() => {
+          process.stderr.write("The PR review action could not complete.\n");
+          process.exitCode = 1;
+        });
+        NODE
