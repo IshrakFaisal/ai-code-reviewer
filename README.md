@@ -71,6 +71,32 @@ npm run --silent review -- "$PR_URL" --fail-on high --out review.md
 0 for success, 1 for usage or configuration, 2 for failed, timed-out or paused
 analysis, 3 for meeting the review-priority threshold, and 130 for Ctrl+C.
 
+## Evaluation
+
+Set `DEMO_MODE=false` and leave execution providers and allowlists disabled.
+Sample recent merged PRs or the original PRs identified in revert descriptions:
+
+```bash
+npm run --silent eval -- --sample-merged OWNER/REPO --limit 10
+npm run --silent eval -- --sample-reverted OWNER/REPO --limit 10
+npm run --silent eval -- --urls eval-output/TIMESTAMP/urls.txt --dry-run
+npm run --silent eval -- --urls eval-output/TIMESTAMP/urls.txt
+npm run --silent eval:score -- eval-output/RUN_TIMESTAMP/labels.csv
+```
+
+Sampling writes a reusable URL list. Add `--run` to sample and analyze in one command.
+Each run has its own directory. Open its `index.md` to read the comments, then open
+`labels.csv` and `prs.csv` in a spreadsheet. Mark verdicts as `useful`,
+`false_positive`, or `unclear`. Mark invented file, line, or symbol references
+with `y` or `n`. For reverted originals, record whether the review caught the
+known issue. Save both sheets as CSV before scoring. Blank cells stay unlabeled.
+
+Defaults are 10 PRs (maximum 25), 10–400 changed lines, at most 30 files,
+60 candidates scanned, and 2 seconds between reviews. Three consecutive failures
+stop analysis. Ctrl+C preserves completed outputs. Each selected PR incurs one
+potentially billable AI analysis when the Nebius key and model are configured.
+The scores describe a small hand-labeled sample, not a benchmark.
+
 ## Commands
 
 ```bash

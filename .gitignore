@@ -8,3 +8,4 @@ coverage/
 *.log
 .sandbox/
 artifacts/
+eval-output/

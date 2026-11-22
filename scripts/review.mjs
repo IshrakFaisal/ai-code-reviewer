@@ -17,8 +17,14 @@ try {
   const loader = createJiti(import.meta.url, {
     alias: { "@": fileURLToPath(new URL("../src", import.meta.url)) },
   });
-  const { review } = await loader.import("./review-cli.ts");
-  process.exitCode = await review(process.argv.slice(2), interrupt.signal);
+  const command = process.env.npm_lifecycle_event;
+  if (command === "eval" || command === "eval:score") {
+    const { evalMain } = await loader.import("./eval.ts");
+    process.exitCode = await evalMain(process.argv.slice(2), interrupt.signal, command === "eval:score");
+  } else {
+    const { review } = await loader.import("./review-cli.ts");
+    process.exitCode = await review(process.argv.slice(2), interrupt.signal);
+  }
 } catch {
   process.stderr.write(
     "Could not initialize the review CLI. Check the local installation and configuration.\n",
