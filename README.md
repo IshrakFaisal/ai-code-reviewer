@@ -42,6 +42,33 @@ Use the exact NVIDIA model ID available in your Nebius account. Restart the app 
 
 An inference key alone does not enable repository execution. See [Windows Docker setup](docs/DOCKER-WINDOWS.md) and [integration configuration](docs/INTEGRATIONS.md).
 
+## Command line
+
+Run from the project root after `npm ci`. The CLI reads the environment and
+`.env.local` and saves reports in the same `.data/` store as the web app.
+
+```bash
+npm run --silent review -- --demo
+npm run --silent review -- https://github.com/OWNER/REPO/pull/123
+npm run --silent review -- --demo --format json --out report.json
+```
+
+Use `DEMO_MODE=false` for real PRs. `--demo` always selects the bundled fixture.
+Stdout contains Markdown by default or JSON with `--format json`. Progress and
+the run ID go to stderr. `--quiet` suppresses progress. Windows PowerShell 5.1
+writes UTF-16 with `>` redirection. Use `--out <file>` for UTF-8 without BOM.
+
+For CI, set `DEMO_MODE=false` and supply the public PR URL:
+
+```sh
+npm ci
+npm run --silent review -- "$PR_URL" --fail-on high --out review.md
+```
+
+`--fail-on` accepts `none` (default), `medium`, or `high`. Exit codes are
+0 for success, 1 for usage or configuration, 2 for failed, timed-out or paused
+analysis, 3 for meeting the review-priority threshold, and 130 for Ctrl+C.
+
 ## Commands
 
 ```bash
