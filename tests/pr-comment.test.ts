@@ -37,13 +37,70 @@ it("summarizes the bundled demo without duplicating fixture checks", () => {
   expect(comment).toContain("Bundled fixture assertions: 3/4 passed, 1 failed");
   expect(comment).not.toContain("Generated test runs:");
   expect(comment).toContain(
-    "Checks not run: Build, TypeScript, Existing tests, Generated test, +1 more.",
+    "Checks not run: build, typecheck, existing tests, generated tests, +1 more.",
   );
-  expect(comment).toContain("AI inference = model judgment, not verified.");
+  expect(comment).toContain(
+    "A failing assertion is a lead to inspect, not proof of a defect.",
+  );
+  expect(comment).not.toContain("A failing generated test");
   expect(comment).toContain(
     `Analysis of head \`${demo.pr.headSha.slice(0, 7)}\`, generated ${demo.createdAt.slice(0, 10)}.`,
   );
   expect(comment.length).toBeLessThanOrEqual(3500);
+});
+it("defines exactly the finding labels shown in the legend", () => {
+  const heuristic = live();
+  const ai = live();
+  ai.provider = "Nebius · model";
+  ai.findings.push({ ...ai.findings[0], evidence: [check("STATIC", "PASS")] });
+  const comments = [
+    output(demo),
+    output(heuristic),
+    output(ai),
+    buildPrComment(demo, null, { maxFindings: 1 }),
+  ];
+  const allLabels = new Set<string>();
+  for (const comment of comments) {
+    const section = comment.split("**Top findings**")[1].split(/\n\n\*\*/)[0];
+    const labels = new Set(
+      Array.from(
+        section.matchAll(/^\d+\. \*\*\w+ · ([^*]+)\*\*:/gm),
+        (match) => match[1],
+      ),
+    );
+    const legend = section.trim().split("\n").at(-1)!;
+    const definitions = legend
+      .split(" · ")
+      .map((entry) => /^(.+?) = [\p{L}].+/u.exec(entry)?.[1]);
+    expect(definitions).toEqual([...labels]);
+    labels.forEach((label) => allLabels.add(label));
+  }
+  expect(allLabels).toEqual(
+    new Set([
+      "Executed",
+      "Demo hypothesis",
+      "Heuristic",
+      "Static analysis",
+      "AI inference",
+    ]),
+  );
+});
+it("uses the detailed partial-coverage warning once and falls back when it is absent", () => {
+  const demoGaps = output(demo).split("**Evidence gaps**")[1].split("\n\n")[0];
+  expect(demoGaps).toContain("Line coverage is partial.");
+  expect(demoGaps).not.toContain("The analyzed diff is partial.");
+  const report = live();
+  report.pr.warnings = [];
+  report.warnings = [];
+  expect(output(report)).toContain("The analyzed diff is partial.");
+});
+it("omits the failure caveat when generated tests passed and only the build failed", () => {
+  const report = live();
+  report.checks = [
+    check("EXECUTED", "PASS"),
+    { ...check("EXECUTED", "FAIL"), type: "Build" },
+  ];
+  expect(output(report)).not.toContain("lead to inspect");
 });
 it("omits empty findings, behaviors and reviewer sections", () => {
   const comment = output({ ...live(), findings: [], behaviors: [] });
@@ -81,7 +138,7 @@ it("reports attached static inspection despite a skipped execution", () => {
     check("EXECUTED", "NOT_RUN"),
   ];
   expect(output(report)).toContain("· Static analysis**");
-  expect(output(report)).toContain("Checks not run: Generated test.");
+  expect(output(report)).toContain("Checks not run: generated tests.");
 });
 it("labels an attached failure as executed and retains the generated-test caveat", () => {
   const report = live();
@@ -111,7 +168,7 @@ it("counts identical skipped tests attached to distinct findings", () => {
   };
   report.findings = [finding, { ...finding, id: "other" }];
   expect(output(report)).toContain(
-    "Checks not run: Generated test, Generated test.",
+    "Checks not run: generated tests, generated tests.",
   );
 });
 it("neutralizes mentions, HTML, links, images, control characters and code delimiters", () => {

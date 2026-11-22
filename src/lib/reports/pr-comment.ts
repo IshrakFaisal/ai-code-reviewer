@@ -7,6 +7,21 @@ import {
   verificationGaps,
 } from "./verification-gaps";
 
+const labelDefinitions = {
+  Executed: "a check or test ran for this finding",
+  "Static analysis": "rules applied to the diff",
+  "AI inference": "an unverified model judgment",
+  Heuristic: "deterministic risk signals selected this file for review",
+  "Demo hypothesis": "an illustrative finding written for the bundled demo",
+};
+
+function skippedCheckName(type: string) {
+  const name = type.slice(0, 61).toLowerCase();
+  if (name === "typescript") return "typecheck";
+  if (name === "generated test") return "generated tests";
+  return field(name, 60);
+}
+
 // Cap the encoded field, keeping each Markdown escape and HTML entity intact.
 function field(value: string, limit: number, code = false) {
   const plain = value
@@ -113,6 +128,7 @@ export function buildPrComment(
   if (changes.length)
     sections.push(["**What changed**", ...changes].join("\n"));
   if (top.length) {
+    const labels = new Set<keyof typeof labelDefinitions>();
     const rows = top.map((f, i) => {
       const label = f.evidence.some(isRun)
         ? "Executed"
@@ -125,6 +141,7 @@ export function buildPrComment(
             : mode === "Live heuristics"
               ? "Heuristic"
               : "AI inference";
+      labels.add(label);
       const ref = f.affectedFiles[0];
       const where = ref
         ? ` (\`${field(ref.path, 125, true)}${ref.startLine ? ":" + ref.startLine : ""}\`)`
@@ -138,7 +155,9 @@ export function buildPrComment(
       );
     rows.push(
       "",
-      "Executed = a check or test ran · Static analysis = rules applied to the diff · AI inference = model judgment, not verified.",
+      [...labels]
+        .map((label) => `${label} = ${labelDefinitions[label]}`)
+        .join(" · ") + ".",
     );
     sections.push(
       [`**Top findings** (${top.length} of ${findings.length})`, ...rows].join(
@@ -166,16 +185,22 @@ export function buildPrComment(
     );
     if (generated.some((e) => e.status === "FAIL"))
       rows.push(
-        "- A failing generated test is a lead to inspect, not proof of a defect.",
+        demo
+          ? "- A failing assertion is a lead to inspect, not proof of a defect."
+          : "- A failing generated test is a lead to inspect, not proof of a defect.",
       );
     if (skipped.length) {
-      const names = skipped.slice(0, 4).map((e) => field(e.type, 60));
+      const names = skipped.slice(0, 4).map((e) => skippedCheckName(e.type));
       if (skipped.length > 4) names.push("+" + (skipped.length - 4) + " more");
       rows.push("- Checks not run: " + names.join(", ") + ".");
     }
     sections.push(["**Verification**", ...rows].join("\n"));
   }
   const gaps = verificationGaps(report);
+  const warnings = [...report.pr.warnings, ...report.warnings];
+  const coverageWarning = warnings.find((warning) =>
+    /line coverage is partial\b|\(500-file cap\)/i.test(warning),
+  );
   const limitations = [
     ...new Set([
       ...(gaps.highRiskGaps
@@ -184,10 +209,9 @@ export function buildPrComment(
           ]
         : []),
       ...(report.reviewSurface.partial
-        ? ["The analyzed diff is partial."]
+        ? [coverageWarning ?? "The analyzed diff is partial."]
         : []),
-      ...report.pr.warnings,
-      ...report.warnings,
+      ...warnings,
     ]),
   ]
     .filter(Boolean)
