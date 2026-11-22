@@ -4,6 +4,7 @@ import { z } from "zod";
 import { EvalError } from "./eval-sample";
 
 export const labelColumns = [
+  "finding_key",
   "pr_url",
   "evidence_label",
   "severity",
@@ -12,6 +13,13 @@ export const labelColumns = [
   "verdict",
   "invented_reference",
   "notes",
+];
+export const anchorColumns = [
+  "finding_key",
+  "anchor_status",
+  "shown_in_comment",
+  "comment_rank",
+  "reason",
 ];
 export const prColumns = [
   "pr_url",
@@ -27,6 +35,7 @@ export const evidenceLabels = [
   "Heuristic",
   "Demo hypothesis",
 ] as const;
+const countSchema = z.number().int().nonnegative();
 export const summarySchema = z.object({
   commit: z.string().regex(/^[a-f0-9]{40}$/),
   ai: z.boolean(),
@@ -37,7 +46,11 @@ export const summarySchema = z.object({
       url: z.url(),
       durationMs: z.number().nonnegative(),
       exitCode: z.number().int(),
-      findings: z.number().int().nonnegative(),
+      findings: countSchema,
+      verified: countSchema,
+      pathOnly: countSchema,
+      unanchored: countSchema,
+      omittedFromComment: countSchema,
     }),
   ),
 });
@@ -124,7 +137,28 @@ function table(
 function rate(yes: number, n: number) {
   return `${n ? (yes / n).toFixed(3) : "n/a"} (${yes}/${n}, n=${n})`;
 }
-export function score(labelsCsv: string, prsCsv: string, summary: Summary) {
+function keyRows(
+  rows: Record<string, string>[],
+  file: string,
+  errors: string[],
+) {
+  const keys = new Map<string, number>();
+  for (const [i, { finding_key: key }] of rows.entries()) {
+    if (!key) errors.push(`${file} row ${i + 2}: missing finding_key`);
+    else if (keys.has(key))
+      errors.push(
+        `${file} row ${i + 2}: duplicate finding_key (first at row ${keys.get(key)! + 2})`,
+      );
+    else keys.set(key, i);
+  }
+  return keys;
+}
+export function score(
+  labelsCsv: string,
+  prsCsv: string,
+  summary: Summary,
+  anchorsCsv: string,
+) {
   const errors: string[] = [];
   const labels = table(
     labelsCsv,
@@ -148,7 +182,51 @@ export function score(labelsCsv: string, prsCsv: string, summary: Summary) {
     },
     errors,
   );
+  const anchors = table(
+    anchorsCsv,
+    anchorColumns,
+    "anchors.csv",
+    {
+      anchor_status: ["verified", "path-only", "unanchored", "not-checked"],
+      shown_in_comment: ["y", "n"],
+    },
+    errors,
+  );
+  keyRows(labels, "labels.csv", errors);
+  const anchorKeys = keyRows(anchors, "anchors.csv", errors);
+  for (const [i, row] of anchors.entries()) {
+    const shown = row.shown_in_comment === "y";
+    if (shown ? !/^[1-5]$/.test(row.comment_rank) : row.comment_rank !== "")
+      errors.push(`anchors.csv row ${i + 2}: comment_rank`);
+    if (shown && row.anchor_status === "unanchored")
+      errors.push(
+        `anchors.csv row ${i + 2}: unanchored finding shown_in_comment`,
+      );
+  }
+  for (const [i, row] of labels.entries()) {
+    if (
+      !row.finding_key.startsWith(row.pr_url + "#") ||
+      !/^[A-Za-z0-9_-]{1,100}$/.test(
+        row.finding_key.slice(row.pr_url.length + 1),
+      )
+    )
+      errors.push(
+        `labels.csv row ${i + 2}: finding_key does not match pr_url and finding id`,
+      );
+    if (!anchorKeys.has(row.finding_key))
+      errors.push(
+        `labels.csv row ${i + 2}: no matching finding_key in anchors.csv`,
+      );
+  }
   if (errors.length) throw new EvalError(errors.join("\n"));
+  const joined = labels.map((row) => ({
+    ...row,
+    ...anchors[anchorKeys.get(row.finding_key)!],
+  }));
+  const flagged = joined.filter(
+    (row) =>
+      row.anchor_status === "path-only" || row.anchor_status === "unanchored",
+  );
   const count = (rows: typeof labels, key: string, value: string) =>
     rows.filter((row) => row[key] === value).length;
   function precision(rows: typeof labels) {
@@ -157,6 +235,7 @@ export function score(labelsCsv: string, prsCsv: string, summary: Summary) {
   }
   const unlabeled = count(labels, "verdict", "");
   const invented = count(labels, "invented_reference", "y");
+  const flaggedInvented = count(flagged, "invented_reference", "y");
   const reverted = prs.filter((row) => row.reverted_by);
   const caught = count(reverted, "caught_known_issue", "yes");
   const times = summary.attempts.map((a) => a.durationMs).sort((a, b) => a - b);
@@ -171,6 +250,19 @@ export function score(labelsCsv: string, prsCsv: string, summary: Summary) {
       ? ["indicative only, n too small for conclusions", ""]
       : []),
     "- Overall precision: " + precision(labels),
+    "- Shown-only precision: " +
+      precision(joined.filter((row) => row.shown_in_comment === "y")),
+    "- Guard recall: " + rate(flaggedInvented, invented),
+    "- Guard precision: " +
+      rate(
+        flaggedInvented,
+        flaggedInvented + count(flagged, "invented_reference", "n"),
+      ),
+    "- Blind spots: " +
+      joined.filter(
+        (row) =>
+          row.invented_reference === "y" && row.anchor_status === "verified",
+      ).length,
     ...evidenceLabels
       .filter((label) => labels.some((row) => row.evidence_label === label))
       .map(
@@ -204,12 +296,22 @@ export function score(labelsCsv: string, prsCsv: string, summary: Summary) {
 }
 export async function scoreFile(file: string) {
   const dir = path.dirname(file);
-  const [labels, prs, raw] = await Promise.all(
-    [file, "prs.csv", "summary.json"].map((name, i) =>
-      readFile(i ? path.join(dir, name) : name, "utf8"),
-    ),
+  const [labels, prs, raw, anchors] = await Promise.all([
+    readFile(file, "utf8"),
+    readFile(path.join(dir, "prs.csv"), "utf8"),
+    readFile(path.join(dir, "summary.json"), "utf8"),
+    readFile(path.join(dir, "anchors.csv"), "utf8").catch((error) => {
+      if (error.code === "ENOENT")
+        throw new EvalError("Missing anchors.csv beside labels.csv.");
+      throw error;
+    }),
+  ]);
+  const result = score(
+    labels,
+    prs,
+    summarySchema.parse(JSON.parse(raw)),
+    anchors,
   );
-  const result = score(labels, prs, summarySchema.parse(JSON.parse(raw)));
   await writeFile(path.join(dir, "scores.md"), result, "utf8");
   return result;
 }

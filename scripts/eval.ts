@@ -3,15 +3,25 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
+import { z } from "zod";
+import { analysisRunStore } from "@/lib/agent/run-store";
+import { citedHypothesisSchema } from "@/lib/ai/provider";
+import type { AnalysisReport, LineRef } from "@/lib/types";
 import { githubClient } from "@/lib/github/client";
 import { parseGitHubInput } from "@/lib/github/input";
 import { validateReport } from "@/lib/reports/schema";
-import { buildPrComment, reportPriorityScore } from "@/lib/reports/pr-comment";
+import {
+  buildPrComment,
+  findingEvidenceLabel,
+  reportPriorityScore,
+  selectCommentFindings,
+} from "@/lib/reports/pr-comment";
 import { riskLevel } from "@/lib/risk/engine";
 import { review } from "./review-cli";
 import { canonicalUrl, EvalError, parseUrls, sample } from "./eval-sample";
 import {
   csv,
+  anchorColumns,
   labelColumns,
   prColumns,
   scoreFile,
@@ -111,34 +121,88 @@ function sheetText(value: string) {
   // Quoting alone does not prevent a spreadsheet from evaluating imported PR text.
   return /^[\s]*[=+@-]|^[\t\r]/.test(value) ? "'" + value : value;
 }
-function findingsForSheet(
-  report: NonNullable<ReturnType<typeof validateReport>>,
-  comment: string,
-  url: string,
-) {
-  const rows = [
-    ...comment.matchAll(/^\d+\. \*\*(LOW|MEDIUM|HIGH) · ([^*]+)\*\*:/gm),
-  ];
-  const ordered = [...report.findings].sort(
-    (a, b) => b.riskScore - a.riskScore,
-  );
-  return rows.map((match, i) => {
-    const f = ordered[i],
-      ref = f.affectedFiles[0];
-    const location = ref
-      ? ref.path + (ref.startLine ? ":" + ref.startLine : "")
+const savedHypotheses = z.object({
+  value: z.array(citedHypothesisSchema),
+  warning: z.string(),
+});
+function citationText(ref: LineRef) {
+  const start = ref.startLine === undefined ? "" : ":" + ref.startLine;
+  const end =
+    ref.endLine !== undefined && ref.endLine !== ref.startLine
+      ? "–" + ref.endLine
       : "";
-    return [
+  return ref.path + start + end + (ref.side === "LEFT" ? " (base)" : "");
+}
+function findingSheets(report: AnalysisReport, url: string, saved: unknown) {
+  const { shown } = selectCommentFindings(report);
+  const ranks = new Map(shown.map((f, i) => [f.id, i + 1]));
+  const counts = {
+    verified: 0,
+    pathOnly: 0,
+    unanchored: 0,
+    omittedFromComment: report.findings.length - shown.length,
+  };
+  const labels: string[][] = [],
+    anchors: string[][] = [];
+  const hypotheses = savedHypotheses.safeParse(saved).data;
+  const modelFindings =
+    report.provider !== "Deterministic analysis" &&
+    !hypotheses?.warning &&
+    !report.warnings.includes(
+      "Hypothesis generation unavailable; deterministic review priorities retained.",
+    );
+  // The investigator assigns IDs before sorting. Recover the original citations
+  // for blind labeling, including line numbers stripped from the saved report.
+  const original = new Map(
+    hypotheses?.value.map((h, i) => [`finding-${i + 1}`, h]),
+  );
+  const ordered = [...report.findings].sort((a, b) =>
+    a.id.localeCompare(b.id, "en", { numeric: true }),
+  );
+  for (const f of ordered) {
+    if (!modelFindings && !f.anchor) continue;
+    const status = f.anchor?.status ?? "not-checked";
+    if (status !== "not-checked")
+      counts[status === "path-only" ? "pathOnly" : status]++;
+    const rank = ranks.get(f.id);
+    const key = url + "#" + f.id;
+    anchors.push([
+      key,
+      status,
+      rank ? "y" : "n",
+      rank?.toString() ?? "",
+      sheetText(f.anchor?.reason ?? ""),
+    ]);
+    if (labels.length === 20) continue;
+    const hypothesis = original.get(f.id);
+    const refs =
+      hypothesis && hypothesis.title === f.title
+        ? hypothesis.affectedFiles
+        : (f.locations ?? f.affectedFiles);
+    labels.push([
+      key,
       url,
-      match[2],
-      match[1],
+      findingEvidenceLabel(report, f),
+      f.severity,
       sheetText(f.title),
-      sheetText(location),
+      sheetText(refs.map(citationText).join("\n")),
       "",
       "",
       "",
-    ];
-  });
+    ]);
+  }
+  const breakdown = new Map<string, number>();
+  for (const f of shown) {
+    const label = findingEvidenceLabel(report, f);
+    breakdown.set(label, (breakdown.get(label) ?? 0) + 1);
+  }
+  return {
+    labels,
+    anchors,
+    counts,
+    shown: shown.length,
+    breakdown: [...breakdown].map(([k, v]) => k + ": " + v).join(", ") || "0",
+  };
 }
 
 export async function evaluate(
@@ -147,6 +211,7 @@ export async function evaluate(
   {
     github = githubClient(),
     runReview = review,
+    readRun = analysisRunStore().get,
     root = "eval-output",
     log = (s: string) => {
       process.stdout.write(s + "\n");
@@ -216,12 +281,13 @@ export async function evaluate(
     attempts: [],
   };
   const labels = [labelColumns],
+    anchors = [anchorColumns],
     prs = [prColumns];
   const index = [
     "# PR evaluation",
     "",
-    "| PR | Files | Lines | Priority (score) | Duration (ms) | Exit | Findings shown | Comment |",
-    "|---|---:|---:|---|---:|---:|---|---|",
+    "| PR | Files | Lines | Priority (score) | Duration (ms) | Exit | Findings shown | Verified | Path-only | Unanchored | Omitted from comment | Comment |",
+    "|---|---:|---:|---|---:|---:|---|---:|---:|---:|---:|---|",
   ];
   async function checkpoint() {
     await save(
@@ -230,6 +296,7 @@ export async function evaluate(
     );
     await save("index.md", index.join("\n") + "\n");
     await save("labels.csv", csv(labels));
+    await save("anchors.csv", csv(anchors));
     await save("prs.csv", csv(prs));
   }
   await checkpoint();
@@ -259,8 +326,8 @@ export async function evaluate(
     }
     const durationMs = Math.round(performance.now() - start);
     let priority = "—",
-      link = "—",
-      rows: string[][] = [];
+      link = "—";
+    let sheets: ReturnType<typeof findingSheets> | undefined;
     if (exit === 0 || exit === 3) {
       try {
         assertPublic(raw);
@@ -272,7 +339,15 @@ export async function evaluate(
         )
           throw new Error();
         const comment = buildPrComment(report, null);
-        rows = findingsForSheet(report, comment, c.url);
+        const run =
+          report.provider === "Deterministic analysis"
+            ? null
+            : await readRun(report.id);
+        const saved =
+          run?.status === "COMPLETE" && run.reportId === report.id
+            ? run.checkpoint.values.hypotheses
+            : undefined;
+        sheets = findingSheets(report, c.url, saved);
         const score = reportPriorityScore(report);
         priority = `${riskLevel(score)} (${score})`;
         c.files = report.pr.changedFiles;
@@ -285,24 +360,29 @@ export async function evaluate(
         if (error instanceof EvalError) throw error;
         if ((error as NodeJS.ErrnoException).code) throw error;
         exit = 2;
-        rows = [];
+        sheets = undefined;
       }
     }
-    const counts = new Map<string, number>();
-    for (const row of rows) counts.set(row[1], (counts.get(row[1]) ?? 0) + 1);
-    const breakdown =
-      [...counts].map(([k, v]) => k + ": " + v).join(", ") ||
-      (exit === 0 || exit === 3 ? "0" : "—");
+    const counts = sheets?.counts ?? {
+      verified: 0,
+      pathOnly: 0,
+      unanchored: 0,
+      omittedFromComment: 0,
+    };
     index.push(
-      `| [${c.url.split("/").slice(3, 5).join("/")}#${c.url.split("/").at(-1)}](${c.url}) | ${c.files ?? "—"} | ${c.lines ?? "—"} | ${priority} | ${durationMs} | ${exit} | ${breakdown} | ${link} |`,
+      `| [${c.url.split("/").slice(3, 5).join("/")}#${c.url.split("/").at(-1)}](${c.url}) | ${c.files ?? "—"} | ${c.lines ?? "—"} | ${priority} | ${durationMs} | ${exit} | ${sheets?.breakdown ?? "—"} | ${counts.verified} | ${counts.pathOnly} | ${counts.unanchored} | ${counts.omittedFromComment} | ${link} |`,
     );
-    labels.push(...rows);
+    if (sheets) {
+      labels.push(...sheets.labels);
+      anchors.push(...sheets.anchors);
+    }
     prs.push([c.url, c.revertedBy, "", "", ""]);
     summary.attempts.push({
       url: c.url,
       durationMs,
       exitCode: exit,
-      findings: rows.length,
+      findings: sheets?.shown ?? 0,
+      ...counts,
     });
     await checkpoint();
     if (exit === 130 || signal.aborted) return 130;

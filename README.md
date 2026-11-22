@@ -84,18 +84,20 @@ npm run --silent eval -- --urls eval-output/TIMESTAMP/urls.txt
 npm run --silent eval:score -- eval-output/RUN_TIMESTAMP/labels.csv
 ```
 
-Sampling writes a reusable URL list. Add `--run` to sample and analyze in one command.
-Each run has its own directory. Open its `index.md` to read the comments, then open
-`labels.csv` and `prs.csv` in a spreadsheet. Mark verdicts as `useful`,
-`false_positive`, or `unclear`. Mark invented file, line, or symbol references
-with `y` or `n`. For reverted originals, record whether the review caught the
-known issue. Save both sheets as CSV before scoring. Blank cells stay unlabeled.
+Label blind. Open `labels.csv` and the source PRs first. Leave `anchors.csv`, the comments, `index.md`, and `summary.json` closed until scoring.
+Each PR contributes up to 20 AI findings in finding-ID order. Inspect every cited location. Original citations come from the completed run checkpoint when available.
+Enter `useful`, `false_positive`, or `unclear` for the verdict and `y` or `n` for an invented file, line, or symbol. Leave unknown labels blank.
+In `prs.csv`, record whether the review caught the known issue for each reverted PR. Save both sheets as CSV and run `eval:score`.
+`anchors.csv` records every AI finding’s status, reason, and comment rank. Older unchecked findings use `not-checked`.
+`index.md` links the comments. It and `summary.json` count verified, path-only, unanchored, and omitted findings per PR. Omitted includes findings beyond the comment limit.
 
-Defaults are 10 PRs (maximum 25), 10–400 changed lines, at most 30 files,
-60 candidates scanned, and 2 seconds between reviews. Three consecutive failures
-stop analysis. Ctrl+C preserves completed outputs. Each selected PR incurs one
-potentially billable AI analysis when the Nebius key and model are configured.
-The scores describe a small hand-labeled sample, not a benchmark.
+- Shown-only precision is useful findings divided by useful plus false positives among the findings shown.
+- Guard recall is the fraction of human-labeled invented references flagged as path-only or unanchored.
+- Guard precision is the fraction of flagged findings with a yes/no reference label that reviewers marked invented.
+- Blind spots count verified locations that reviewers marked invented. Below 20 verdicts, scores are indicative only.
+
+Sampling saves reusable URLs. Add `--run` to analyze them immediately. Defaults are 10 PRs (maximum 25), 10–400 changed lines, 30 files maximum, 60 candidates, and 2 seconds between reviews.
+Three consecutive failures stop analysis. Ctrl+C preserves completed outputs. Configured AI reviews can incur charges.
 
 ## Commands
 
