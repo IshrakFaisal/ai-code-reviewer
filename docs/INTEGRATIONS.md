@@ -87,3 +87,9 @@ The opt-in `npm run test:sandbox` and `npm run test:nebius-sandbox` require thei
 ## Evaluation
 
 Use the [sampling and scoring commands](../README.md#evaluation) to produce a local `eval-output/` directory. The harness disables repository execution during review. Open the source PRs and blind label sheets first. The scored output is meaningful only for the labeled sample. [Harness](../scripts/eval.ts) · [Scorer](../scripts/eval-score.ts)
+
+### Labeling screen
+
+Set `ENABLE_EVAL_UI=true` in the local server environment, restart the app and visit `/eval`. Leave the flag unset on hosted deployments. Open a run and use **Files changed** to check each finding on GitHub. Keys **1/2/3** select a verdict, **Y/N** label an invented reference, and **J/K** navigate findings and PR assessments. A finding counts as labeled when both judgments are filled in. New runs include blind finding descriptions, and older runs can still be labeled without them.
+
+Use the screen or a spreadsheet one at a time. Edits autosave to `labels.csv` and `prs.csv`. **Score now** uses the same scorer as `eval:score` and shows aggregate metrics. Results are indicative only for the labeled sample.

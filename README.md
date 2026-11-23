@@ -78,6 +78,8 @@ Replace the repository and timestamp placeholders with your own. Sampling saves 
 
 Keep `anchors.csv`, the comments, `index.md`, and `summary.json` closed until scoring. The scorer joins human labels to citation status and comment rank by finding key. Shown-only precision measures usefulness among decisive verdicts on displayed findings. Guard recall measures the share of invented references flagged. Guard precision measures the share of flagged findings labeled invented. Blind spots count verified locations reviewers labeled invented.
 
+For keyboard labeling, set `ENABLE_EVAL_UI=true`, restart the app, and open `/eval`. The screen autosaves to the same CSVs and scores them locally. [Labeling screen](docs/INTEGRATIONS.md#labeling-screen)
+
 ## Limitations
 
 - The browser and evaluation harness accept public GitHub PRs only. The CLI and Action can review a private PR with an explicit opt-in and a token with read access. Sending private data to inference requires a second opt-in. A real private-repository run is **not verified**. [Private repositories](docs/INTEGRATIONS.md#private-repositories)
