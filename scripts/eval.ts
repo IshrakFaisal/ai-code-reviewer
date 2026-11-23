@@ -117,10 +117,6 @@ function assertPublic(text: string) {
       );
   }
 }
-function sheetText(value: string) {
-  // Quoting alone does not prevent a spreadsheet from evaluating imported PR text.
-  return /^[\s]*[=+@-]|^[\t\r]/.test(value) ? "'" + value : value;
-}
 const savedHypotheses = z.object({
   value: z.array(citedHypothesisSchema),
   warning: z.string(),
@@ -144,6 +140,7 @@ function findingSheets(report: AnalysisReport, url: string, saved: unknown) {
   };
   const labels: string[][] = [],
     anchors: string[][] = [];
+  const descriptions: Record<string, string> = {};
   const hypotheses = savedHypotheses.safeParse(saved).data;
   const modelFindings =
     report.provider !== "Deterministic analysis" &&
@@ -171,9 +168,10 @@ function findingSheets(report: AnalysisReport, url: string, saved: unknown) {
       status,
       rank ? "y" : "n",
       rank?.toString() ?? "",
-      sheetText(f.anchor?.reason ?? ""),
+      f.anchor?.reason ?? "",
     ]);
     if (labels.length === 20) continue;
+    descriptions[key] = f.description;
     const hypothesis = original.get(f.id);
     const refs =
       hypothesis && hypothesis.title === f.title
@@ -184,8 +182,8 @@ function findingSheets(report: AnalysisReport, url: string, saved: unknown) {
       url,
       findingEvidenceLabel(report, f),
       f.severity,
-      sheetText(f.title),
-      sheetText(refs.map(citationText).join("\n")),
+      f.title,
+      refs.map(citationText).join("\n"),
       "",
       "",
       "",
@@ -198,6 +196,7 @@ function findingSheets(report: AnalysisReport, url: string, saved: unknown) {
   }
   return {
     labels,
+    descriptions,
     anchors,
     counts,
     shown: shown.length,
@@ -283,6 +282,7 @@ export async function evaluate(
   const labels = [labelColumns],
     anchors = [anchorColumns],
     prs = [prColumns];
+  const descriptions: Record<string, string> = {};
   const index = [
     "# PR evaluation",
     "",
@@ -296,6 +296,7 @@ export async function evaluate(
     );
     await save("index.md", index.join("\n") + "\n");
     await save("labels.csv", csv(labels));
+    await save("descriptions.json", JSON.stringify(descriptions) + "\n");
     await save("anchors.csv", csv(anchors));
     await save("prs.csv", csv(prs));
   }
@@ -373,6 +374,7 @@ export async function evaluate(
       `| [${c.url.split("/").slice(3, 5).join("/")}#${c.url.split("/").at(-1)}](${c.url}) | ${c.files ?? "—"} | ${c.lines ?? "—"} | ${priority} | ${durationMs} | ${exit} | ${sheets?.breakdown ?? "—"} | ${counts.verified} | ${counts.pathOnly} | ${counts.unanchored} | ${counts.omittedFromComment} | ${link} |`,
     );
     if (sheets) {
+      Object.assign(descriptions, sheets.descriptions);
       labels.push(...sheets.labels);
       anchors.push(...sheets.anchors);
     }

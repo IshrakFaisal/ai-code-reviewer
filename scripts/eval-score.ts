@@ -55,22 +55,25 @@ export const summarySchema = z.object({
   ),
 });
 export type Summary = z.infer<typeof summarySchema>;
+// Escape apostrophes that would otherwise be indistinguishable from our guard.
+const guarded = /^'*\s*[=+@\-\t\r]/u;
+function encodeCell(value: string) {
+  const safe = guarded.test(value) ? "'" + value : value;
+  return /[",\r\n]/.test(safe) ? '"' + safe.replaceAll('"', '""') + '"' : safe;
+}
+export function csvRow(row: string[]) {
+  return row.map(encodeCell).join(",");
+}
 export function csv(rows: string[][]) {
-  return (
-    rows
-      .map((row) =>
-        row
-          .map((s) =>
-            /[",\r\n]/.test(s) ? '"' + s.replaceAll('"', '""') + '"' : s,
-          )
-          .join(","),
-      )
-      .join("\r\n") + "\r\n"
-  );
+  return rows.map(csvRow).join("\r\n") + "\r\n";
 }
 export function parseCsv(input: string) {
-  const text = input.replace(/^\uFEFF/, "");
-  const rows: string[][] = [];
+  return csvRecords(input).map((record) => record.cells);
+}
+// Raw offsets let a single-row edit preserve BOM, quoting and original line endings elsewhere.
+export function csvRecords(text: string) {
+  const rows: { cells: string[]; start: number; end: number }[] = [];
+  let start = text.startsWith("\uFEFF") ? 1 : 0;
   let row: string[] = [],
     field = "",
     quoted = false,
@@ -78,7 +81,14 @@ export function parseCsv(input: string) {
   function invalid(): never {
     throw new EvalError(`Invalid CSV at row ${rows.length + 1}.`);
   }
-  for (let i = 0; i < text.length; i++) {
+  function finishField() {
+    row.push(
+      field.startsWith("'") && guarded.test(field) ? field.slice(1) : field,
+    );
+    field = "";
+    closed = false;
+  }
+  for (let i = start; i < text.length; i++) {
     const c = text[i];
     if (quoted) {
       if (c !== '"') {
@@ -93,15 +103,13 @@ export function parseCsv(input: string) {
       quoted = false;
       closed = true;
     } else if (c === ",") {
-      row.push(field);
-      field = "";
-      closed = false;
+      finishField();
     } else if (c === "\r" || c === "\n") {
+      finishField();
+      rows.push({ cells: row, start, end: i });
       if (c === "\r" && text[i + 1] === "\n") i++;
-      rows.push([...row, field]);
+      start = i + 1;
       row = [];
-      field = "";
-      closed = false;
     } else if (closed) invalid();
     else if (c === '"') {
       if (field) invalid();
@@ -109,7 +117,10 @@ export function parseCsv(input: string) {
     } else field += c;
   }
   if (quoted) invalid();
-  if (row.length || field || closed) rows.push([...row, field]);
+  if (row.length || field || closed) {
+    finishField();
+    rows.push({ cells: row, start, end: text.length });
+  }
   return rows;
 }
 function table(

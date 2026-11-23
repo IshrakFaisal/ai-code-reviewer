@@ -361,6 +361,13 @@ it("writes blind labels in finding-ID order, capped at 20 independently of the g
     "notes",
   ]);
   expect(rows).toHaveLength(20);
+  const descriptions = JSON.parse(
+    await readFile(path.join(dir, "descriptions.json"), "utf8"),
+  );
+  expect(Object.keys(descriptions).sort()).toEqual(rows.map((r) => r[0]).sort());
+  expect(Object.values(descriptions)).toEqual(
+    rows.map(() => heuristicFindings[0].description),
+  );
   expect(rows.map((r) => r[0])).toEqual(
     Array.from({ length: 20 }, (_, i) => url(1) + "#finding-" + (i + 1)),
   );
